@@ -1,0 +1,13 @@
+# Managed by debian-hardening-ansible (fail2ban role).
+# Edit the role variables, not this file — changes here will be overwritten.
+[DEFAULT]
+# Ban via UFW, and read the journal instead of a log file (Debian default).
+banaction = ufw
+backend   = systemd
+
+[sshd]
+enabled  = true
+port     = {{ fail2ban_ssh_port }}
+bantime  = {{ fail2ban_bantime }}
+findtime = {{ fail2ban_findtime }}
+maxretry = {{ fail2ban_maxretry }}

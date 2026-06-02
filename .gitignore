@@ -1,0 +1,8 @@
+# Ansible
+*.retry
+.vault_pass
+
+# Local inventories with real hosts/secrets (commit inventory.ini as the example)
+inventory.local.ini
+host_vars/
+group_vars/*.local.yml

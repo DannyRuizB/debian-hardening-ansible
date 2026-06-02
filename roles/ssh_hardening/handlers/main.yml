@@ -1,0 +1,7 @@
+---
+# Runs only when a task notifies it (i.e. the drop-in actually changed).
+# A reload keeps existing connections alive, unlike a restart.
+- name: Reload ssh
+  ansible.builtin.systemd:
+    name: ssh
+    state: reloaded

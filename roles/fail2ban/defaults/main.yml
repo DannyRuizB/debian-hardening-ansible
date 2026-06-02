@@ -1,0 +1,8 @@
+---
+# Keep the jail's port in sync with the SSH port used everywhere else.
+fail2ban_ssh_port: "{{ ssh_port | default(22) }}"
+
+# Ban policy for the sshd jail.
+fail2ban_bantime: 1h
+fail2ban_findtime: 10m
+fail2ban_maxretry: 5

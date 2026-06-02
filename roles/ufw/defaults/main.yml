@@ -1,0 +1,8 @@
+---
+# SSH port to keep open. Reuses ssh_port if it's set at play level
+# (so the firewall and the SSH config always agree), else falls back to 22.
+ufw_ssh_port: "{{ ssh_port | default(22) }}"
+
+# Extra ports to open, e.g. ["80/tcp", "443/tcp", "9090/udp"].
+# Proto defaults to tcp when omitted ("80" == "80/tcp").
+ufw_extra_ports: []

@@ -1,0 +1,8 @@
+---
+# Leave admin_user empty to skip this role entirely.
+# Set it to create/ensure a sudo-capable user before SSH gets locked down.
+admin_user: ""
+
+# Public key to install for that user, e.g. "ssh-ed25519 AAAA... you@host".
+# If empty, the user is created/ensured but no key is installed.
+admin_pubkey: ""

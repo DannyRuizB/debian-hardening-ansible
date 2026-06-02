@@ -1,0 +1,45 @@
+---
+# --- Lockout guard ---------------------------------------------------------
+# Before disabling password auth, confirm the key owner actually has a key,
+# so a typo or missing key can never lock us out over SSH.
+- name: Look up the key owner's home directory
+  ansible.builtin.getent:
+    database: passwd
+    key: "{{ ssh_key_owner }}"
+
+- name: Check for an authorized_keys file
+  ansible.builtin.stat:
+    path: "{{ getent_passwd[ssh_key_owner][4] }}/.ssh/authorized_keys"
+  register: authorized_keys
+
+- name: Decide whether password auth can be safely disabled
+  ansible.builtin.set_fact:
+    ssh_password_auth: >-
+      {{ 'no'
+         if (ssh_disable_password
+             and ((authorized_keys.stat.exists and (authorized_keys.stat.size | default(0)) > 0)
+                  or ssh_force_no_password))
+         else 'yes' }}
+
+- name: Warn that password auth stays enabled to avoid a lockout
+  ansible.builtin.debug:
+    msg: >-
+      No usable authorized_keys for '{{ ssh_key_owner }}'. Keeping
+      PasswordAuthentication ENABLED. Add a key (or set
+      ssh_force_no_password=true with console access) and re-run.
+  when:
+    - ssh_disable_password
+    - ssh_password_auth == 'yes'
+
+# --- Apply config ----------------------------------------------------------
+# 'validate' runs `sshd -t` on the rendered file BEFORE it replaces the live
+# drop-in. A broken config is rejected, so we never reload an unparseable sshd.
+- name: Deploy SSH hardening drop-in
+  ansible.builtin.template:
+    src: 99-hardening.conf.j2
+    dest: /etc/ssh/sshd_config.d/99-hardening.conf
+    owner: root
+    group: root
+    mode: "0644"
+    validate: "sshd -t -f %s"
+  notify: Reload ssh

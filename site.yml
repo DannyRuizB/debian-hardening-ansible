@@ -1,0 +1,15 @@
+---
+# Baseline hardening for a fresh Debian 12/13 server.
+# Mirrors the steps of the harden.sh script, but declarative and idempotent.
+- name: Harden Debian baseline
+  hosts: debian_servers
+  become: true
+
+  roles:
+    # Order matters: create the admin user + key BEFORE locking down SSH,
+    # so the ssh_hardening lockout guard can find a usable key.
+    - admin_user
+    - ssh_hardening
+    - ufw
+    - fail2ban
+    - unattended_upgrades

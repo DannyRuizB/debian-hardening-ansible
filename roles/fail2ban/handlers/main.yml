@@ -1,0 +1,7 @@
+---
+# fail2ban has no clean reload for jail changes, so restart it.
+# Only fires when the jail.local template actually changed.
+- name: Restart fail2ban
+  ansible.builtin.systemd:
+    name: fail2ban
+    state: restarted
