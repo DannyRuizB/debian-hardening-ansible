@@ -5,6 +5,7 @@
 > Fail2Ban and automatic security updates — but rebuilt **the Ansible way**:
 > declarative, role-based and idempotent, **without locking you out**.
 
+[![lint](https://github.com/DannyRuizB/debian-hardening-ansible/actions/workflows/lint.yml/badge.svg)](https://github.com/DannyRuizB/debian-hardening-ansible/actions/workflows/lint.yml)
 ![Ansible](https://img.shields.io/badge/Ansible-EE0000?logo=ansible&logoColor=white)
 ![Debian](https://img.shields.io/badge/Debian-12%20%7C%2013-A81D33?logo=debian&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-green)
@@ -63,13 +64,13 @@ $EDITOR inventory.ini
 
 # 2. Dry-run: show every change without touching the host.
 ansible-playbook site.yml --check --diff \
-  -e admin_user=danny \
-  -e "admin_pubkey='$(cat ~/.ssh/id_ed25519.pub)'"
+  -e admin_user_name=danny \
+  -e "admin_user_pubkey='$(cat ~/.ssh/id_ed25519.pub)'"
 
 # 3. Apply for real.
 ansible-playbook site.yml \
-  -e admin_user=danny \
-  -e "admin_pubkey='$(cat ~/.ssh/id_ed25519.pub)'"
+  -e admin_user_name=danny \
+  -e "admin_user_pubkey='$(cat ~/.ssh/id_ed25519.pub)'"
 ```
 
 ### Common variables
@@ -78,11 +79,11 @@ Override on the command line (`-e var=value`) or in `group_vars/`:
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `ssh_port` | `22` | SSH port; shared by the SSH, UFW and Fail2Ban roles. |
-| `admin_user` | `""` | Sudo user to create (empty = skip the role). |
-| `admin_pubkey` | `""` | Public key to install for that user. |
+| `ssh_port` | `22` | SSH port; shared by the SSH, UFW and Fail2Ban roles (`group_vars/all.yml`). |
+| `admin_user_name` | `""` | Sudo user to create (empty = skip the role). |
+| `admin_user_pubkey` | `""` | Public key to install for that user. |
 | `ufw_extra_ports` | `[]` | Extra ports to open, e.g. `'["80/tcp","443/tcp"]'`. |
-| `ssh_force_no_password` | `false` | Disable password auth even with no key (DANGEROUS). |
+| `ssh_hardening_force_no_password` | `false` | Disable password auth even with no key (DANGEROUS). |
 
 ## Verify after running
 

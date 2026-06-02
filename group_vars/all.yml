@@ -1,0 +1,4 @@
+---
+# Shared across roles: the SSH port the ssh_hardening, ufw and fail2ban roles
+# all align to. Defined here (play level) so it isn't owned by any single role.
+ssh_port: 22

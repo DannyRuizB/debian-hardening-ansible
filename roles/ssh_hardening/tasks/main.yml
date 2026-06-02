@@ -5,31 +5,32 @@
 - name: Look up the key owner's home directory
   ansible.builtin.getent:
     database: passwd
-    key: "{{ ssh_key_owner }}"
+    key: "{{ ssh_hardening_key_owner }}"
 
 - name: Check for an authorized_keys file
   ansible.builtin.stat:
-    path: "{{ getent_passwd[ssh_key_owner][4] }}/.ssh/authorized_keys"
-  register: authorized_keys
+    path: "{{ getent_passwd[ssh_hardening_key_owner][4] }}/.ssh/authorized_keys"
+  register: ssh_hardening_authorized_keys
 
 - name: Decide whether password auth can be safely disabled
   ansible.builtin.set_fact:
-    ssh_password_auth: >-
+    ssh_hardening_password_auth: >-
       {{ 'no'
-         if (ssh_disable_password
-             and ((authorized_keys.stat.exists and (authorized_keys.stat.size | default(0)) > 0)
-                  or ssh_force_no_password))
+         if (ssh_hardening_disable_password
+             and ((ssh_hardening_authorized_keys.stat.exists
+                   and (ssh_hardening_authorized_keys.stat.size | default(0)) > 0)
+                  or ssh_hardening_force_no_password))
          else 'yes' }}
 
 - name: Warn that password auth stays enabled to avoid a lockout
   ansible.builtin.debug:
     msg: >-
-      No usable authorized_keys for '{{ ssh_key_owner }}'. Keeping
+      No usable authorized_keys for '{{ ssh_hardening_key_owner }}'. Keeping
       PasswordAuthentication ENABLED. Add a key (or set
-      ssh_force_no_password=true with console access) and re-run.
+      ssh_hardening_force_no_password=true with console access) and re-run.
   when:
-    - ssh_disable_password
-    - ssh_password_auth == 'yes'
+    - ssh_hardening_disable_password
+    - ssh_hardening_password_auth == 'yes'
 
 # --- Apply config ----------------------------------------------------------
 # 'validate' runs `sshd -t` on the rendered file BEFORE it replaces the live

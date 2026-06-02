@@ -1,0 +1,34 @@
+name: lint
+
+# Static checks on every push and pull request: playbook syntax + ansible-lint.
+# No host is touched — these only analyse the playbook and roles.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  ansible-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # The full 'ansible' package brings community.general (ufw) and
+      # ansible.posix (authorized_key), which the roles depend on.
+      - name: Install Ansible + ansible-lint
+        run: pip install ansible ansible-lint
+
+      - name: Playbook syntax check
+        run: ansible-playbook site.yml --syntax-check
+
+      - name: ansible-lint
+        run: ansible-lint

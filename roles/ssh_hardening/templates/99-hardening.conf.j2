@@ -1,7 +1,7 @@
 # Managed by debian-hardening-ansible (ssh_hardening role).
 # Edit the role variables, not this file — changes here will be overwritten.
-Port {{ ssh_port }}
-PermitRootLogin {{ ssh_permit_root_login }}
+Port {{ ssh_hardening_port }}
+PermitRootLogin {{ ssh_hardening_permit_root_login }}
 PubkeyAuthentication yes
-PasswordAuthentication {{ ssh_password_auth }}
+PasswordAuthentication {{ ssh_hardening_password_auth }}
 KbdInteractiveAuthentication no

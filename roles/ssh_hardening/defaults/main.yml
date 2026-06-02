@@ -1,19 +1,19 @@
 ---
-# SSH port to listen on / protect.
-ssh_port: 22
+# SSH port to listen on / protect. Inherits the shared ssh_port (group_vars).
+ssh_hardening_port: "{{ ssh_port | default(22) }}"
 
 # "no" disallows root SSH login entirely.
-ssh_permit_root_login: "no"
+ssh_hardening_permit_root_login: "no"
 
 # Move to key-only authentication. The lockout guard in tasks/main.yml keeps
 # password auth ENABLED if it can't find an authorized_keys file, so a missing
 # key never locks you out — unless you override it below.
-ssh_disable_password: true
+ssh_hardening_disable_password: true
 
 # DANGEROUS: disable password auth even when no key is found.
 # Only set true when you have console access to recover.
-ssh_force_no_password: false
+ssh_hardening_force_no_password: false
 
 # Account whose authorized_keys proves you won't be locked out.
 # Defaults to the user Ansible connects as.
-ssh_key_owner: "{{ ansible_user | default('root') }}"
+ssh_hardening_key_owner: "{{ ansible_user | default('root') }}"

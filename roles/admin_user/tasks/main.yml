@@ -1,11 +1,11 @@
 ---
-# The whole role is a no-op unless an admin_user is requested.
+# The whole role is a no-op unless an admin user is requested.
 - name: Manage the admin user
-  when: admin_user | length > 0
+  when: admin_user_name | length > 0
   block:
     - name: Create admin user with sudo membership
       ansible.builtin.user:
-        name: "{{ admin_user }}"
+        name: "{{ admin_user_name }}"
         groups: sudo
         append: true        # add to sudo without dropping existing groups
         shell: /bin/bash
@@ -13,7 +13,7 @@
 
     - name: Install the admin user's SSH public key
       ansible.posix.authorized_key:
-        user: "{{ admin_user }}"
-        key: "{{ admin_pubkey }}"
+        user: "{{ admin_user_name }}"
+        key: "{{ admin_user_pubkey }}"
         state: present
-      when: admin_pubkey | length > 0
+      when: admin_user_pubkey | length > 0
