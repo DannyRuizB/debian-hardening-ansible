@@ -9,7 +9,7 @@
 
 - name: Check for an authorized_keys file
   ansible.builtin.stat:
-    path: "{{ getent_passwd[ssh_hardening_key_owner][4] }}/.ssh/authorized_keys"
+    path: "{{ ansible_facts.getent_passwd[ssh_hardening_key_owner][4] }}/.ssh/authorized_keys"
   register: ssh_hardening_authorized_keys
 
 - name: Decide whether password auth can be safely disabled
