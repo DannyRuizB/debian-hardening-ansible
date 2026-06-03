@@ -10,13 +10,20 @@
         append: true        # add to sudo without dropping existing groups
         shell: /bin/bash
         state: present
+      register: admin_user_account
 
     - name: Install the admin user's SSH public key
       ansible.posix.authorized_key:
         user: "{{ admin_user_name }}"
         key: "{{ admin_user_pubkey }}"
         state: present
-      when: admin_user_pubkey | length > 0
+      # In check mode the task above doesn't really create the user, so
+      # authorized_key can't resolve a not-yet-existing user's home dir and
+      # errors out. Skip only in that exact case (check mode + user would be
+      # created); a real run creates the user first and installs the key.
+      when:
+        - admin_user_pubkey | length > 0
+        - not (ansible_check_mode and admin_user_account.changed)
 
     # Without this the user is in the 'sudo' group but has no password, so they
     # can't actually escalate. The sudoers module validates with visudo before

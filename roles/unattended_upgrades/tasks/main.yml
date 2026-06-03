@@ -6,6 +6,7 @@
     state: present
     update_cache: true
     cache_valid_time: 3600
+  register: unattended_upgrades_pkg
 
 - name: Enable periodic update + unattended upgrade
   ansible.builtin.copy:
@@ -22,3 +23,7 @@
     name: unattended-upgrades
     enabled: true
     state: started
+  # In check mode the package isn't really installed above, so its service unit
+  # doesn't exist yet and this errors out. Skip only in that exact case; a real
+  # run installs the package first and the service is managed normally.
+  when: not (ansible_check_mode and unattended_upgrades_pkg.changed)
