@@ -6,3 +6,10 @@ admin_user_name: ""
 # Public key to install for that user, e.g. "ssh-ed25519 AAAA... you@host".
 # If empty, the user is created/ensured but no key is installed.
 admin_user_pubkey: ""
+
+# Give the admin user passwordless sudo via a /etc/sudoers.d/ drop-in.
+# Enabled by default: this user is created for key-based login with NO password
+# set, so without this they land in the 'sudo' group but can't authenticate to
+# sudo at all (no password to type). Set to false if you manage the user's
+# password yourself and prefer the normal interactive sudo prompt.
+admin_user_passwordless_sudo: true

@@ -17,3 +17,15 @@
         key: "{{ admin_user_pubkey }}"
         state: present
       when: admin_user_pubkey | length > 0
+
+    # Without this the user is in the 'sudo' group but has no password, so they
+    # can't actually escalate. The sudoers module validates with visudo before
+    # writing, so a bad rule can never break sudo on the host.
+    - name: Grant the admin user passwordless sudo
+      community.general.sudoers:
+        name: "{{ admin_user_name }}"
+        user: "{{ admin_user_name }}"
+        commands: ALL
+        nopassword: true
+        state: present
+      when: admin_user_passwordless_sudo

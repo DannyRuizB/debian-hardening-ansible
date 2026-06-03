@@ -82,6 +82,7 @@ Override on the command line (`-e var=value`) or in `group_vars/`:
 | `ssh_port` | `22` | SSH port; shared by the SSH, UFW and Fail2Ban roles (`group_vars/all.yml`). |
 | `admin_user_name` | `""` | Sudo user to create (empty = skip the role). |
 | `admin_user_pubkey` | `""` | Public key to install for that user. |
+| `admin_user_passwordless_sudo` | `true` | Give that user passwordless sudo (they have no password, so otherwise can't escalate). Set `false` if you manage their password yourself. |
 | `ufw_extra_ports` | `[]` | Extra ports to open, e.g. `'["80/tcp","443/tcp"]'`. |
 | `ssh_hardening_force_no_password` | `false` | Disable password auth even with no key (DANGEROUS). |
 
