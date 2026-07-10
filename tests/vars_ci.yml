@@ -1,0 +1,5 @@
+---
+# Variables the e2e test passes to site.yml. The admin user's public key is
+# generated at runtime by node.sh and appended as a second vars file.
+admin_user_name: opsadmin
+ssh_hardening_key_owner: opsadmin

@@ -1,0 +1,66 @@
+name: e2e
+
+# The real proof: boot a disposable Debian "server" (systemd container),
+# harden it with site.yml over real SSH, run the playbook again to prove
+# idempotence, and then verify every promise from the outside.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  harden-and-verify:
+    name: Harden a disposable Debian node + verify
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      # The full 'ansible' package brings community.general (ufw, sudoers)
+      # and ansible.posix (authorized_key), which the roles depend on.
+      - name: Install Ansible
+        run: pip install ansible
+
+      - name: Boot the test node
+        run: ./tests/node.sh up && ./tests/node.sh wait
+
+      # The CI key doubles as the admin user's key. Written as a vars file
+      # because -e key=value can't carry the spaces of an OpenSSH public key.
+      - name: Prepare the admin user's public key as a vars file
+        run: |
+          echo "admin_user_pubkey: '$(cat tests/.ssh_ci/id_ci.pub)'" > tests/.ssh_ci/pubkey.yml
+
+      - name: Dry-run on the fresh node (--check changes nothing)
+        run: >
+          ansible-playbook -i tests/inventory_first_run.ini site.yml --check
+          -e @tests/vars_ci.yml -e @tests/.ssh_ci/pubkey.yml
+
+      - name: "First pass: harden the node (connecting as root)"
+        run: >
+          ansible-playbook -i tests/inventory_first_run.ini site.yml
+          -e @tests/vars_ci.yml -e @tests/.ssh_ci/pubkey.yml
+
+      # Root is locked out now, so this pass connects as the admin user the
+      # playbook just created — and must change nothing (idempotence).
+      - name: "Second pass: as the admin user, changed=0"
+        run: |
+          output=$(ansible-playbook -i tests/inventory_hardened.ini site.yml \
+            -e @tests/vars_ci.yml -e @tests/.ssh_ci/pubkey.yml)
+          echo "$output" | tail -3
+          echo "$output" | grep -q "changed=0" \
+            || { echo "::error::The playbook is not idempotent"; exit 1; }
+
+      - name: Verify the hardening from the outside
+        run: ./tests/verify.sh
+
+      - name: Tear the node down
+        if: always()
+        run: ./tests/node.sh down
