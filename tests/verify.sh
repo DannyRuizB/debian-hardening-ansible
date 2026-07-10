@@ -76,25 +76,38 @@ expect_line "periodic upgrades are enabled in apt config" \
 
 # LAST on purpose: banning the client cuts our own SSH access to the node.
 echo "== Fail2Ban really bans =="
-for _ in $(seq 1 8); do
-  ssh "${OPTS[@]}" -i "$KEY" root@127.0.0.1 true >/dev/null 2>&1 || true
-done
-# The authoritative view, straight from the jail (SSH may be cut already).
-# The ban is applied asynchronously, so poll for it (up to 30 s).
+# Attack with a mix of NON-existent usernames (root/admin/oracle/...), the way a
+# real bot does. These log as 'Invalid user' from the sshd-session process on
+# OpenSSH >= 9.8 — which the stock '_COMM=sshd' journal match misses, so this
+# exercises the jail's journalmatch fix. Fire waves until the ban lands (fail2ban
+# can miss the first attempts right after a restart).
 banned=no
-for _ in $(seq 1 15); do
-  if docker exec dh-test-node fail2ban-client status sshd 2>/dev/null \
-      | grep -E -q "Currently banned:[[:space:]]+[1-9]"; then
-    banned=yes
-    break
-  fi
-  sleep 2
+for wave in 1 2 3; do
+  for u in root admin test oracle git postgres ubuntu daniel; do
+    ssh "${OPTS[@]}" -o ConnectTimeout=3 -i "$KEY" "$u@127.0.0.1" true >/dev/null 2>&1 || true
+  done
+  for _ in $(seq 1 8); do
+    if docker exec dh-test-node fail2ban-client status sshd 2>/dev/null \
+        | grep -E -q "Currently banned:[[:space:]]+[1-9]"; then
+      banned=yes
+      break
+    fi
+    sleep 2
+  done
+  [ "$banned" = yes ] && break
 done
 if [ "$banned" = yes ]; then
   pass "repeated failed logins get the attacker banned"
 else
   fail "repeated failed logins get the attacker banned"
 fi
+# fail2ban marks the ban a moment before banaction=ufw inserts the REJECT rule,
+# so wait for the rule to land before testing the locked-out login — otherwise
+# a fast runner slips a connection through the gap.
+for _ in $(seq 1 10); do
+  docker exec dh-test-node ufw status 2>/dev/null | grep -qiE "REJECT|DENY" && break
+  sleep 1
+done
 # And the attacker's experience: even a GOOD key is refused once banned.
 if ssh "${OPTS[@]}" -o ConnectTimeout=3 -i "$KEY" opsadmin@127.0.0.1 true >/dev/null 2>&1; then
   fail "banned client is locked out even with a valid key"

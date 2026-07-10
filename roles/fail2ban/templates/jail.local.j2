@@ -11,3 +11,7 @@ port     = {{ fail2ban_ssh_port }}
 bantime  = {{ fail2ban_bantime }}
 findtime = {{ fail2ban_findtime }}
 maxretry = {{ fail2ban_maxretry }}
+# OpenSSH >= 9.8 splits auth into an 'sshd-session' process, so the stock
+# filter's '_COMM=sshd' journal match misses 'Invalid user' failures and never
+# bans them. Match on the ssh unit alone (covers sshd and sshd-session).
+journalmatch = _SYSTEMD_UNIT=ssh.service
