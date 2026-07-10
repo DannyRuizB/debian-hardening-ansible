@@ -127,6 +127,11 @@ against a stock Debian node and a hardened one, side by side** — the stock box
 is breached as root in one guess and brute-forced without limit, the hardened
 one refuses both ([`tests/BEFORE_AFTER.md`](tests/BEFORE_AFTER.md)).
 
+Finally, [`tests/attacks.sh`](tests/attacks.sh) is a **catalogue of recon and
+login techniques** — banner grabbing, port scan, username enumeration, a
+dictionary attack — each shown bouncing off the control that neutralises it
+([`tests/ATTACKS.md`](tests/ATTACKS.md)).
+
 The same harness runs locally with Docker:
 
 ```bash
