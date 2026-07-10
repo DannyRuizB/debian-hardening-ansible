@@ -117,6 +117,11 @@ passwords — and records what the server does. Root logins with a valid key,
 password auth with the right password, and a brute-force burst are all turned
 away; the write-up is in [`tests/REDTEAM.md`](tests/REDTEAM.md).
 
+Its blue-team counterpart, [`tests/forensics.sh`](tests/forensics.sh), stages an
+attack and then **reconstructs it from the node's own logs** — who attacked,
+which accounts they tried, and how Fail2Ban responded — as a tour of the files a
+defender actually reads ([`tests/FORENSICS.md`](tests/FORENSICS.md)).
+
 The same harness runs locally with Docker:
 
 ```bash
