@@ -108,6 +108,15 @@ Linting is not testing, so on every push the [`e2e` workflow](.github/workflows/
    deny-by-default, services running — and finally a live brute-force
    simulation that must get the client **banned by Fail2Ban**.
 
+### Red-team experiment
+
+For fun (and as a sharper proof), [`tests/redteam.sh`](tests/redteam.sh) turns
+the tables: instead of asserting the config, it **attacks** the hardened node
+from the outside — handing the attacker a valid key *and* the correct account
+passwords — and records what the server does. Root logins with a valid key,
+password auth with the right password, and a brute-force burst are all turned
+away; the write-up is in [`tests/REDTEAM.md`](tests/REDTEAM.md).
+
 The same harness runs locally with Docker:
 
 ```bash
