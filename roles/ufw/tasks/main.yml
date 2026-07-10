@@ -5,31 +5,39 @@
     state: present
     update_cache: true
     cache_valid_time: 3600
+  register: ufw_pkg
 
-- name: Default deny incoming
-  community.general.ufw:
-    direction: incoming
-    policy: deny
+# In check mode the package isn't really installed above, so the ufw binary
+# doesn't exist yet and every ufw task would error out. Skip only in that
+# exact case (same guard as the unattended_upgrades role); a real run
+# installs the package first and configures the firewall normally.
+- name: Configure and enable the firewall
+  when: not (ansible_check_mode and ufw_pkg.changed)
+  block:
+    - name: Default deny incoming
+      community.general.ufw:
+        direction: incoming
+        policy: deny
 
-- name: Default allow outgoing
-  community.general.ufw:
-    direction: outgoing
-    policy: allow
+    - name: Default allow outgoing
+      community.general.ufw:
+        direction: outgoing
+        policy: allow
 
-# Allow SSH BEFORE enabling the firewall, so enabling can never lock us out.
-- name: Allow SSH
-  community.general.ufw:
-    rule: allow
-    port: "{{ ufw_ssh_port }}"
-    proto: tcp
+    # Allow SSH BEFORE enabling the firewall, so enabling can never lock us out.
+    - name: Allow SSH
+      community.general.ufw:
+        rule: allow
+        port: "{{ ufw_ssh_port }}"
+        proto: tcp
 
-- name: Allow extra ports
-  community.general.ufw:
-    rule: allow
-    port: "{{ item.split('/')[0] }}"
-    proto: "{{ item.split('/')[1] if '/' in item else 'tcp' }}"
-  loop: "{{ ufw_extra_ports }}"
+    - name: Allow extra ports
+      community.general.ufw:
+        rule: allow
+        port: "{{ item.split('/')[0] }}"
+        proto: "{{ item.split('/')[1] if '/' in item else 'tcp' }}"
+      loop: "{{ ufw_extra_ports }}"
 
-- name: Enable ufw
-  community.general.ufw:
-    state: enabled
+    - name: Enable ufw
+      community.general.ufw:
+        state: enabled

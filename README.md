@@ -6,6 +6,7 @@
 > declarative, role-based and idempotent, **without locking you out**.
 
 [![lint](https://github.com/DannyRuizB/debian-hardening-ansible/actions/workflows/lint.yml/badge.svg)](https://github.com/DannyRuizB/debian-hardening-ansible/actions/workflows/lint.yml)
+[![e2e](https://github.com/DannyRuizB/debian-hardening-ansible/actions/workflows/test.yml/badge.svg)](https://github.com/DannyRuizB/debian-hardening-ansible/actions/workflows/test.yml)
 ![Ansible](https://img.shields.io/badge/Ansible-EE0000?logo=ansible&logoColor=white)
 ![Debian](https://img.shields.io/badge/Debian-12%20%7C%2013-A81D33?logo=debian&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-green)
@@ -85,6 +86,38 @@ Override on the command line (`-e var=value`) or in `group_vars/`:
 | `admin_user_passwordless_sudo` | `true` | Give that user passwordless sudo (they have no password, so otherwise can't escalate). Set `false` if you manage their password yourself. |
 | `ufw_extra_ports` | `[]` | Extra ports to open, e.g. `'["80/tcp","443/tcp"]'`. |
 | `ssh_hardening_force_no_password` | `false` | Disable password auth even with no key (DANGEROUS). |
+
+## How it's tested
+
+Linting is not testing, so on every push the [`e2e` workflow](.github/workflows/test.yml)
+**applies the hardening for real** and checks the result from the outside:
+
+1. **Boot a disposable "server"** — a privileged systemd container
+   (Debian 13 + sshd) where root logs in with a CI key, like a fresh VPS
+   ([`tests/node.sh`](tests/node.sh)).
+2. **Dry-run first** — `site.yml --check` against the fresh node must succeed
+   without touching it.
+3. **First pass as root** — the playbook creates the admin user, locks down
+   SSH, enables UFW, Fail2Ban and unattended-upgrades.
+4. **Second pass as the admin user** — root is locked out now, so this pass
+   connects as the user the playbook just created (proving the handover), and
+   must report `changed=0` (proving idempotence).
+5. **Verify from the outside** ([`tests/verify.sh`](tests/verify.sh)) — every
+   promise, checked over SSH like an attacker would: root login rejected,
+   password auth not offered (and `sshd -T` effective config), UFW active with
+   deny-by-default, services running — and finally a live brute-force
+   simulation that must get the client **banned by Fail2Ban**.
+
+The same harness runs locally with Docker:
+
+```bash
+./tests/node.sh up && ./tests/node.sh wait
+echo "admin_user_pubkey: '$(cat tests/.ssh_ci/id_ci.pub)'" > tests/.ssh_ci/pubkey.yml
+ansible-playbook -i tests/inventory_first_run.ini site.yml -e @tests/vars_ci.yml -e @tests/.ssh_ci/pubkey.yml
+ansible-playbook -i tests/inventory_hardened.ini site.yml -e @tests/vars_ci.yml -e @tests/.ssh_ci/pubkey.yml
+./tests/verify.sh
+./tests/node.sh down
+```
 
 ## Verify after running
 
