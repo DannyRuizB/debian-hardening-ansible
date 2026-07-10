@@ -30,7 +30,7 @@ Five roles, applied in order by `site.yml`:
 | Role | Detail |
 |---|---|
 | **admin_user** | Optional: create a sudo user and install their SSH public key (runs first, so the SSH lockout guard can find a key). |
-| **ssh_hardening** | Drop-in `99-hardening.conf`: no root login, key-only auth, custom port. `validate: sshd -t` before the file goes live; reloads SSH only on change. |
+| **ssh_hardening** | Drop-in `99-hardening.conf`: no root login, key-only auth, custom port, plus CIS extras (`MaxAuthTries`, `X11Forwarding no`, `LoginGraceTime`, idle-session timeout). `validate: sshd -t` before the file goes live; reloads SSH only on change. |
 | **ufw** | Default deny incoming, allow SSH (and any extra ports), then enable. |
 | **fail2ban** | `sshd` jail, `backend = systemd`, `banaction = ufw`, ban 1h / maxretry 5. |
 | **unattended_upgrades** | Automatic security patches. |
@@ -127,10 +127,16 @@ against a stock Debian node and a hardened one, side by side** — the stock box
 is breached as root in one guess and brute-forced without limit, the hardened
 one refuses both ([`tests/BEFORE_AFTER.md`](tests/BEFORE_AFTER.md)).
 
-Finally, [`tests/attacks.sh`](tests/attacks.sh) is a **catalogue of recon and
-login techniques** — banner grabbing, port scan, username enumeration, a
-dictionary attack — each shown bouncing off the control that neutralises it
+[`tests/attacks.sh`](tests/attacks.sh) is a **catalogue of recon and login
+techniques** — banner grabbing, port scan, username enumeration, a dictionary
+attack — each shown bouncing off the control that neutralises it
 ([`tests/ATTACKS.md`](tests/ATTACKS.md)).
+
+And [`tests/audit.sh`](tests/audit.sh) **grades the node against a CIS-style
+checklist** and prints a score. It's what drove the SSH role's extra hardening
+(`MaxAuthTries`, `X11Forwarding`, `LoginGraceTime`, idle timeout): the audit
+flagged them, so the baseline now sets them and scores 100%
+([`tests/AUDIT.md`](tests/AUDIT.md)).
 
 The same harness runs locally with Docker:
 
