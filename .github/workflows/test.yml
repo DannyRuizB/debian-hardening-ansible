@@ -35,7 +35,8 @@ jobs:
       # The CI key doubles as the admin user's key. Written as a vars file
       # because -e key=value can't carry the spaces of an OpenSSH public key.
       - name: Prepare the admin user's public key as a vars file
-        run: echo "admin_user_pubkey: '$(cat tests/.ssh_ci/id_ci.pub)'" > tests/.ssh_ci/pubkey.yml
+        run: |
+          echo "admin_user_pubkey: '$(cat tests/.ssh_ci/id_ci.pub)'" > tests/.ssh_ci/pubkey.yml
 
       - name: Dry-run on the fresh node (--check changes nothing)
         run: >
