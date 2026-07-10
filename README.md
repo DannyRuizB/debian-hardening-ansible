@@ -122,6 +122,11 @@ attack and then **reconstructs it from the node's own logs** — who attacked,
 which accounts they tried, and how Fail2Ban responded — as a tour of the files a
 defender actually reads ([`tests/FORENSICS.md`](tests/FORENSICS.md)).
 
+And [`tests/before_after.sh`](tests/before_after.sh) runs the **same attack
+against a stock Debian node and a hardened one, side by side** — the stock box
+is breached as root in one guess and brute-forced without limit, the hardened
+one refuses both ([`tests/BEFORE_AFTER.md`](tests/BEFORE_AFTER.md)).
+
 The same harness runs locally with Docker:
 
 ```bash
