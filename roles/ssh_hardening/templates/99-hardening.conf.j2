@@ -5,3 +5,9 @@ PermitRootLogin {{ ssh_hardening_permit_root_login }}
 PubkeyAuthentication yes
 PasswordAuthentication {{ ssh_hardening_password_auth }}
 KbdInteractiveAuthentication no
+# CIS-style extra hardening (see role defaults to tune).
+MaxAuthTries {{ ssh_hardening_max_auth_tries }}
+X11Forwarding {{ ssh_hardening_x11_forwarding }}
+LoginGraceTime {{ ssh_hardening_login_grace_time }}
+ClientAliveInterval {{ ssh_hardening_client_alive_interval }}
+ClientAliveCountMax {{ ssh_hardening_client_alive_count_max }}

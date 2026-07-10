@@ -17,3 +17,10 @@ ssh_hardening_force_no_password: false
 # Account whose authorized_keys proves you won't be locked out.
 # Defaults to the user Ansible connects as.
 ssh_hardening_key_owner: "{{ ansible_user | default('root') }}"
+
+# CIS-style extra hardening. Sensible defaults; override per host if needed.
+ssh_hardening_max_auth_tries: 4        # fewer guesses per connection (CIS: <= 4)
+ssh_hardening_x11_forwarding: "no"     # no GUI tunnelling unless you need it
+ssh_hardening_login_grace_time: 60     # seconds to authenticate before drop
+ssh_hardening_client_alive_interval: 300  # idle-session timeout (0 = disabled)
+ssh_hardening_client_alive_count_max: 3
