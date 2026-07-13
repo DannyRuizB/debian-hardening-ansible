@@ -25,7 +25,7 @@ conditionals — not just run ad-hoc commands.
 
 ## What it does
 
-Five roles, applied in order by `site.yml`:
+Six roles, applied in order by `site.yml`:
 
 | Role | Detail |
 |---|---|
@@ -34,6 +34,7 @@ Five roles, applied in order by `site.yml`:
 | **ufw** | Default deny incoming, allow SSH (and any extra ports), then enable. |
 | **fail2ban** | `sshd` jail, `backend = systemd`, `banaction = ufw`, ban 1h / maxretry 5. |
 | **unattended_upgrades** | Automatic security patches. |
+| **sysctl_hardening** | Drop-in `/etc/sysctl.d/99-hardening.conf`: no ICMP redirects (in or out), no source routing, reverse-path filtering, martian logging, SYN cookies, restricted `dmesg` / kernel pointers, no setuid core dumps. Deliberately leaves `accept_ra` (IPv6 SLAAC on VPSes) and `ip_forward` (routers / Docker hosts) alone. Applied live only when the file changes. |
 
 ### Lockout guard
 

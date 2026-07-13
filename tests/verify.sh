@@ -74,6 +74,20 @@ expect_line "unattended-upgrades service is running" "^active$" \
 expect_line "periodic upgrades are enabled in apt config" \
   'APT::Periodic::Unattended-Upgrade "1"' cat /etc/apt/apt.conf.d/20auto-upgrades
 
+
+echo "== Kernel hardening (sysctl) =="
+# Ask the kernel for the EFFECTIVE values — not the file we wrote. sysctl
+# lives in /usr/sbin, outside the non-root SSH PATH, hence the sudo.
+expect_line "ICMP redirects are not accepted" "^0$" sudo sysctl -n net.ipv4.conf.all.accept_redirects
+expect_line "ICMP redirects are not sent" "^0$" sudo sysctl -n net.ipv4.conf.all.send_redirects
+expect_line "source-routed packets are refused" "^0$" sudo sysctl -n net.ipv4.conf.all.accept_source_route
+expect_line "reverse-path filtering is on" "^1$" sudo sysctl -n net.ipv4.conf.all.rp_filter
+expect_line "martian packets are logged" "^1$" sudo sysctl -n net.ipv4.conf.all.log_martians
+expect_line "SYN cookies are enabled" "^1$" sudo sysctl -n net.ipv4.tcp_syncookies
+expect_line "dmesg is restricted to root" "^1$" sudo sysctl -n kernel.dmesg_restrict
+expect_line "setuid binaries cannot dump core" "^0$" sudo sysctl -n fs.suid_dumpable
+expect_ok "the sysctl drop-in survives reboots" test -s /etc/sysctl.d/99-hardening.conf
+
 # LAST on purpose: banning the client cuts our own SSH access to the node.
 echo "== Fail2Ban really bans =="
 # Attack with a mix of NON-existent usernames (root/admin/oracle/...), the way a
