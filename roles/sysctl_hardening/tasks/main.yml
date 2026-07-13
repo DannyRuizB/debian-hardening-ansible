@@ -1,0 +1,32 @@
+---
+# Kernel hardening via a sysctl drop-in — mirrors step 6 of harden.sh in the
+# sibling Bash repo. The file persists across reboots; the handler applies it
+# live only when the template actually changed.
+- name: Install the sysctl hardening drop-in
+  ansible.builtin.template:
+    src: 99-hardening.conf.j2
+    dest: "{{ sysctl_hardening_dropin }}"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Apply sysctl
+
+# UFW ships /etc/ufw/sysctl.conf with an explicit log_martians=0 and re-applies
+# it on every start/reload (IPT_SYSCTL in /etc/default/ufw) — silently undoing
+# our drop-in after any reboot or ufw reload. Reconcile that file so both
+# sources agree. Found empirically: the e2e caught the value flipping back.
+- name: Check for UFW's own sysctl file
+  ansible.builtin.stat:
+    path: /etc/ufw/sysctl.conf
+  register: sysctl_hardening_ufw_file
+
+- name: Align UFW's sysctl overrides with the hardening drop-in
+  ansible.builtin.lineinfile:
+    path: /etc/ufw/sysctl.conf
+    regexp: '^{{ item }}='
+    line: "{{ item }}=1"
+  loop:
+    - net/ipv4/conf/all/log_martians
+    - net/ipv4/conf/default/log_martians
+  when: sysctl_hardening_ufw_file.stat.exists
+  notify: Apply sysctl

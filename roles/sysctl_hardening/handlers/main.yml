@@ -1,0 +1,8 @@
+---
+# Runs only when the drop-in changed. -e ignores keys this kernel doesn't
+# have. In an unprivileged container some keys are read-only — the file still
+# applies on the next boot, so a partial live apply is not a failure.
+- name: Apply sysctl
+  ansible.builtin.command: sysctl -e -p {{ sysctl_hardening_dropin }}
+  changed_when: true
+  failed_when: false

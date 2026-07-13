@@ -1,0 +1,36 @@
+---
+# Where the drop-in lands. Files in /etc/sysctl.d/ re-apply on every boot.
+sysctl_hardening_dropin: /etc/sysctl.d/99-hardening.conf
+
+# CIS-style network / kernel keys. Override or extend per host if needed.
+#
+# Deliberately NOT included, to keep the "won't lock you out" promise:
+#   net.ipv6.conf.*.accept_ra  — would break IPv6 SLAAC on many VPSes
+#   net.ipv4.ip_forward        — would break routers / Docker hosts
+sysctl_hardening_keys:
+  # ICMP redirects: don't accept or send them (route injection / MITM).
+  net.ipv4.conf.all.accept_redirects: 0
+  net.ipv4.conf.default.accept_redirects: 0
+  net.ipv6.conf.all.accept_redirects: 0
+  net.ipv6.conf.default.accept_redirects: 0
+  net.ipv4.conf.all.send_redirects: 0
+  net.ipv4.conf.default.send_redirects: 0
+  # Source-routed packets: legacy feature, only useful for spoofing.
+  net.ipv4.conf.all.accept_source_route: 0
+  net.ipv4.conf.default.accept_source_route: 0
+  net.ipv6.conf.all.accept_source_route: 0
+  net.ipv6.conf.default.accept_source_route: 0
+  # Reverse-path filtering: drop packets whose return route doesn't match.
+  net.ipv4.conf.all.rp_filter: 1
+  net.ipv4.conf.default.rp_filter: 1
+  # Log packets with impossible source addresses ("martians").
+  net.ipv4.conf.all.log_martians: 1
+  net.ipv4.conf.default.log_martians: 1
+  # SYN-flood protection and ICMP noise reduction.
+  net.ipv4.tcp_syncookies: 1
+  net.ipv4.icmp_echo_ignore_broadcasts: 1
+  net.ipv4.icmp_ignore_bogus_error_responses: 1
+  # Kernel info leaks and setuid core dumps.
+  kernel.kptr_restrict: 1
+  kernel.dmesg_restrict: 1
+  fs.suid_dumpable: 0

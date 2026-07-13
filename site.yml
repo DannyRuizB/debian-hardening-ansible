@@ -13,3 +13,4 @@
     - ufw
     - fail2ban
     - unattended_upgrades
+    - sysctl_hardening
