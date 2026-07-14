@@ -88,6 +88,22 @@ expect_line "dmesg is restricted to root" "^1$" sudo sysctl -n kernel.dmesg_rest
 expect_line "setuid binaries cannot dump core" "^0$" sudo sysctl -n fs.suid_dumpable
 expect_ok "the sysctl drop-in survives reboots" test -s /etc/sysctl.d/99-hardening.conf
 
+echo "== Account policies =="
+expect_line "password max age is 365 days" "^PASS_MAX_DAYS[[:space:]]+365$" grep -E "^PASS_MAX_DAYS" /etc/login.defs
+expect_line "password min age is 1 day" "^PASS_MIN_DAYS[[:space:]]+1$" grep -E "^PASS_MIN_DAYS" /etc/login.defs
+expect_line "password expiry warning is 7 days" "^PASS_WARN_AGE[[:space:]]+7$" grep -E "^PASS_WARN_AGE" /etc/login.defs
+expect_line "new accounts get a 30-day inactivity lock" "^INACTIVE=30$" grep "^INACTIVE=" /etc/default/useradd
+# Functional, not just the config files: an account created NOW must inherit
+# all four values in its shadow entry (min:max:warn:inactive).
+on_node sudo useradd probe-aging 2>/dev/null || true
+expect_line "a freshly created account inherits 1/365/7/30" "^1:365:7:30$" \
+  sudo bash -c "'getent shadow probe-aging | cut -d: -f4-7'"
+on_node sudo userdel probe-aging 2>/dev/null || true
+# The lockout guard: key-only accounts (locked password) are never aged —
+# the admin user this suite logs in with must keep an untouched hash.
+expect_line "the key-only admin account is not aged (locked hash untouched)" "^[!*]" \
+  sudo bash -c "'getent shadow opsadmin | cut -d: -f2'"
+
 # LAST on purpose: banning the client cuts our own SSH access to the node.
 echo "== Fail2Ban really bans =="
 # Attack with a mix of NON-existent usernames (root/admin/oracle/...), the way a

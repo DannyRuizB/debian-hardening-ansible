@@ -25,7 +25,7 @@ conditionals — not just run ad-hoc commands.
 
 ## What it does
 
-Six roles, applied in order by `site.yml`:
+Seven roles, applied in order by `site.yml`:
 
 | Role | Detail |
 |---|---|
@@ -35,6 +35,7 @@ Six roles, applied in order by `site.yml`:
 | **fail2ban** | `sshd` jail, `backend = systemd`, `banaction = ufw`, ban 1h / maxretry 5. |
 | **unattended_upgrades** | Automatic security patches. |
 | **sysctl_hardening** | Drop-in `/etc/sysctl.d/99-hardening.conf`: no ICMP redirects (in or out), no source routing, reverse-path filtering, martian logging, SYN cookies, restricted `dmesg` / kernel pointers, no setuid core dumps. Deliberately leaves `accept_ra` (IPv6 SLAAC on VPSes) and `ip_forward` (routers / Docker hosts) alone. Applied live only when the file changes. |
+| **account_policies** | Password aging per CIS 5.4 (`PASS_MAX_DAYS 365`, `PASS_MIN_DAYS 1`, `PASS_WARN_AGE 7` in `login.defs`), applied also to existing password-holding accounts, plus a 30-day post-expiry inactivity lock for accounts created from now on. Key-only accounts (locked hash — like the one `admin_user` creates) are never touched, and existing accounts don't get the inactivity lock: one whose password expired long ago would be locked on the spot. All four values are role defaults, overridable per host. |
 
 ### Lockout guard
 
