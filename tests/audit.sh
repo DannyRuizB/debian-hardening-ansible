@@ -109,6 +109,23 @@ echo "-- Kernel parameters (CIS network) --------------------------"
   && P "setuid programs can't dump core" \
   || W "setuid core dumps allowed" "set fs.suid_dumpable=0"
 
+echo "-- Account policies (CIS) -----------------------------------"
+# Value of a key in /etc/login.defs (empty if the key is absent/commented).
+ld() { on_node awk -v k="$1" '$1==k{print $2; exit}' /etc/login.defs; }
+[ "$(ld PASS_MAX_DAYS)" -le 365 ] 2>/dev/null \
+  && P "Password max age <= 365 days ($(ld PASS_MAX_DAYS))" \
+  || W "Password max age is $(ld PASS_MAX_DAYS)" "set PASS_MAX_DAYS 365 in /etc/login.defs"
+[ "$(ld PASS_MIN_DAYS)" -ge 1 ] 2>/dev/null \
+  && P "Password min age >= 1 day ($(ld PASS_MIN_DAYS))" \
+  || W "Password min age is $(ld PASS_MIN_DAYS)" "set PASS_MIN_DAYS 1 in /etc/login.defs"
+[ "$(ld PASS_WARN_AGE)" -ge 7 ] 2>/dev/null \
+  && P "Password expiry warning >= 7 days ($(ld PASS_WARN_AGE))" \
+  || W "Expiry warning is $(ld PASS_WARN_AGE)" "set PASS_WARN_AGE 7 in /etc/login.defs"
+inactive=$(on_node useradd -D | sed -n 's/^INACTIVE=//p')
+[ "$inactive" -ge 0 ] 2>/dev/null && [ "$inactive" -le 30 ] 2>/dev/null \
+  && P "New accounts lock after <= 30 days of inactivity (INACTIVE=$inactive)" \
+  || W "Inactivity lock is INACTIVE=${inactive:--1} (never)" "run 'useradd -D -f 30'"
+
 echo "-- Accounts & files -----------------------------------------"
 on_node getent group sudo | grep -qE ':.*[a-z]' \
   && P "A non-root sudo account exists ($(on_node getent group sudo | sed 's/.*://'))" \

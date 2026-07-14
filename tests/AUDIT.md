@@ -26,8 +26,8 @@ Score = (PASS + 0.5*WARN) / total * 100
 ```
 
 Categories: SSH authentication (core), SSH hardening extras (CIS), firewall,
-intrusion prevention, patch management, kernel parameters (CIS network), and
-accounts & files.
+intrusion prevention, patch management, kernel parameters (CIS network),
+account policies (CIS), and accounts & files.
 
 ## What it caught — and the fix
 
@@ -56,17 +56,19 @@ behaviour. That's the whole loop: **audit → find gaps → remediate → re-aud
 When the baseline later gained the `sysctl_hardening` role, the audit grew with
 it: a **Kernel parameters (CIS network)** section now grades seven of the keys
 the role's drop-in promises (ICMP redirects, source routing, rp_filter, SYN
-cookies, `dmesg_restrict`, `suid_dumpable`). Current score on a freshly
-hardened node:
+cookies, `dmesg_restrict`, `suid_dumpable`). The `account_policies` role added
+an **Account policies (CIS)** section with four more: password max/min age,
+expiry warning, and the inactivity lock for new accounts. Current score on a
+freshly hardened node:
 
 ```
- Score: 25 PASS, 0 WARN, 0 FAIL  ->  100% compliant
+ Score: 29 PASS, 0 WARN, 0 FAIL  ->  100% compliant
 ```
 
 ## Honesty
 
 This is a lightweight, SSH-and-service-focused checklist, not a full CIS
 Benchmark or a Lynis run. 100% here means "compliant with *these* checks" — it
-doesn't cover filesystem mount options, auditd, AppArmor, password-aging policy,
+doesn't cover filesystem mount options, auditd, AppArmor,
 or the dozens of other items a full benchmark grades. It's a useful, honest
 scorecard for the controls this baseline is actually responsible for.

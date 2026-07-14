@@ -1,0 +1,14 @@
+---
+# CIS 5.4 password-aging policy, written to /etc/login.defs. These values
+# apply to accounts created from now on; the role also ages EXISTING
+# password-holding accounts (login.defs alone would be theater on a server
+# with existing users).
+account_policies_pass_max_days: 365
+account_policies_pass_min_days: 1
+account_policies_pass_warn_age: 7
+
+# Days after password expiry before a NEW account is locked (useradd -D -f).
+# Deliberately NOT applied to existing accounts: one whose password expired
+# more than this many days ago would be locked on the spot — against the
+# "won't lock you out" promise.
+account_policies_inactive_days: 30

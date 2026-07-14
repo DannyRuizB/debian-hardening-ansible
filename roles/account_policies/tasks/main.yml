@@ -1,0 +1,43 @@
+---
+# Account policies — mirrors step 7 of harden.sh in the sibling Bash repo:
+# password aging per CIS 5.4 plus an inactivity lock for new accounts.
+- name: Set the password-aging policy in login.defs
+  ansible.builtin.lineinfile:
+    path: /etc/login.defs
+    regexp: '^#?\s*{{ item.key }}\b'
+    line: "{{ item.key }}\t{{ item.value }}"
+  loop:
+    - { key: PASS_MAX_DAYS, value: "{{ account_policies_pass_max_days }}" }
+    - { key: PASS_MIN_DAYS, value: "{{ account_policies_pass_min_days }}" }
+    - { key: PASS_WARN_AGE, value: "{{ account_policies_pass_warn_age }}" }
+  loop_control:
+    label: "{{ item.key }}"
+
+- name: Lock new accounts after password expiry (useradd defaults)
+  ansible.builtin.lineinfile:
+    path: /etc/default/useradd
+    regexp: '^#?\s*INACTIVE='
+    line: "INACTIVE={{ account_policies_inactive_days }}"
+
+# login.defs only affects accounts created later — existing accounts that
+# actually hold a password get the same aging here. Two deliberate
+# exclusions keep the "won't lock you out" promise:
+#   - locked/passwordless accounts ("!" / "*" hash — key-only admins like
+#     the one admin_user creates) are never touched;
+#   - the inactivity lock is NOT applied to existing accounts (see defaults).
+- name: Read the shadow database
+  ansible.builtin.getent:
+    database: shadow
+  # The fact contains every password hash — keep it out of logs.
+  no_log: true
+
+- name: Age existing password-holding accounts
+  ansible.builtin.user:
+    name: "{{ item.key }}"
+    password_expire_max: "{{ account_policies_pass_max_days }}"
+    password_expire_min: "{{ account_policies_pass_min_days }}"
+    password_expire_warn: "{{ account_policies_pass_warn_age }}"
+  loop: "{{ ansible_facts.getent_shadow | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+  when: item.value[0] is match('^[^!*]')
