@@ -24,6 +24,8 @@ F() { printf "  \033[31mFAIL\033[0m  %s\n         -> %s\n" "$1" "$2"; fail=$((fa
 sshd_conf=$(docker exec "$NODE" sshd -T 2>/dev/null)
 val() { echo "$sshd_conf" | awk -v k="$1" 'tolower($1)==k{print $2; exit}'; }
 on_node() { docker exec "$NODE" "$@" 2>/dev/null; }
+# Effective kernel value for a sysctl key (empty if the key doesn't exist).
+sctl() { docker exec "$NODE" sysctl -n "$1" 2>/dev/null; }
 
 echo "============================================================="
 echo " COMPLIANCE AUDIT — hardened node vs a CIS-style checklist"
@@ -83,6 +85,29 @@ echo "-- Patch management -----------------------------------------"
 on_node grep -q 'Unattended-Upgrade "1"' /etc/apt/apt.conf.d/20auto-upgrades \
   && P "Automatic security updates enabled" \
   || F "Automatic updates not configured" "set APT::Periodic::Unattended-Upgrade 1"
+
+echo "-- Kernel parameters (CIS network) --------------------------"
+[ "$(sctl net.ipv4.conf.all.accept_redirects)" = 0 ] \
+  && P "ICMP redirects not accepted" \
+  || W "ICMP redirects accepted" "set net.ipv4.conf.all.accept_redirects=0"
+[ "$(sctl net.ipv4.conf.all.send_redirects)" = 0 ] \
+  && P "ICMP redirects not sent" \
+  || W "ICMP redirects sent" "set net.ipv4.conf.all.send_redirects=0"
+[ "$(sctl net.ipv4.conf.all.accept_source_route)" = 0 ] \
+  && P "Source-routed packets refused" \
+  || W "Source routing accepted" "set net.ipv4.conf.all.accept_source_route=0"
+[ "$(sctl net.ipv4.conf.all.rp_filter)" = 1 ] \
+  && P "Reverse-path filtering on" \
+  || W "Reverse-path filtering off" "set net.ipv4.conf.all.rp_filter=1"
+[ "$(sctl net.ipv4.tcp_syncookies)" = 1 ] \
+  && P "SYN cookies enabled" \
+  || W "SYN cookies disabled" "set net.ipv4.tcp_syncookies=1"
+[ "$(sctl kernel.dmesg_restrict)" = 1 ] \
+  && P "dmesg restricted to root" \
+  || W "dmesg world-readable" "set kernel.dmesg_restrict=1"
+[ "$(sctl fs.suid_dumpable)" = 0 ] \
+  && P "setuid programs can't dump core" \
+  || W "setuid core dumps allowed" "set fs.suid_dumpable=0"
 
 echo "-- Accounts & files -----------------------------------------"
 on_node getent group sudo | grep -qE ':.*[a-z]' \
