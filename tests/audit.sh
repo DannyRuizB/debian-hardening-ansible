@@ -154,6 +154,21 @@ perm_issue=$(on_node stat -c '%a %U %G' /etc/issue.net)
   && P "banner file permissions sane (644 root:root)" \
   || W "issue.net is $perm_issue" "chown root:root && chmod 644"
 
+echo "-- Sudo hardening (CIS 5.3) ---------------------------------"
+on_node dpkg -s sudo >/dev/null \
+  && P "sudo is installed" \
+  || F "sudo is not installed" "apt-get install sudo"
+on_node grep -rqE '^Defaults\s+use_pty' /etc/sudoers /etc/sudoers.d \
+  && P "sudo runs commands in their own pty (use_pty)" \
+  || W "use_pty not set" "add 'Defaults use_pty' (sudo_hardening role)"
+on_node grep -rqE '^Defaults\s+logfile=' /etc/sudoers /etc/sudoers.d \
+  && P "sudo has a dedicated logfile" \
+  || W "sudo logs only via syslog" "add 'Defaults logfile=\"/var/log/sudo.log\"'"
+sudoers_perm=$(on_node stat -c '%a' /etc/sudoers.d/99-hardening-sudo 2>/dev/null)
+[ "$sudoers_perm" = "440" ] \
+  && P "sudo drop-in permissions sane (440)" \
+  || W "sudo drop-in is ${sudoers_perm:-absent}" "mode 0440 (sudo_hardening role)"
+
 echo "-- Accounts & files -----------------------------------------"
 on_node getent group sudo | grep -qE ':.*[a-z]' \
   && P "A non-root sudo account exists ($(on_node getent group sudo | sed 's/.*://'))" \
