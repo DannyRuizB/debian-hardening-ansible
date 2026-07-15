@@ -126,6 +126,19 @@ inactive=$(on_node useradd -D | sed -n 's/^INACTIVE=//p')
   && P "New accounts lock after <= 30 days of inactivity (INACTIVE=$inactive)" \
   || W "Inactivity lock is INACTIVE=${inactive:--1} (never)" "run 'useradd -D -f 30'"
 
+echo "-- Filesystem mount options (CIS) ---------------------------"
+# Live options of /dev/shm (empty if it isn't a mountpoint).
+shm_opts=$(on_node findmnt -no OPTIONS /dev/shm)
+for opt in nodev nosuid noexec; do
+  case ",$shm_opts," in
+    *",$opt,"*) P "/dev/shm mounted with $opt";;
+    *) W "/dev/shm is missing $opt" "remount /dev/shm with $opt (mount_options role)";;
+  esac
+done
+on_node grep -qE '^[^#].*[[:space:]]/dev/shm[[:space:]].*nodev' /etc/fstab \
+  && P "/dev/shm options pinned in fstab (survive reboots)" \
+  || W "/dev/shm options not in fstab" "pin 'tmpfs /dev/shm tmpfs defaults,nodev,nosuid,noexec 0 0'"
+
 echo "-- Accounts & files -----------------------------------------"
 on_node getent group sudo | grep -qE ':.*[a-z]' \
   && P "A non-root sudo account exists ($(on_node getent group sudo | sed 's/.*://'))" \

@@ -1,0 +1,54 @@
+---
+# Mount options — mirrors step 8 of harden.sh in the sibling Bash repo:
+# /dev/shm remounted (and pinned in fstab) with nodev,nosuid,noexec.
+# Debian has no fstab entry for /dev/shm by default (systemd mounts it),
+# so without the pin the options would die at reboot.
+
+# An admin may already have pinned /dev/shm with a custom size= or quota —
+# read the current options so the hardened entry keeps them and only the
+# missing flags are added. Read-only, and a later task needs the result
+# even during a dry-run, hence check_mode: false.
+- name: Read any existing /dev/shm options from fstab
+  ansible.builtin.command: awk '$1 !~ /^#/ && $2 == "/dev/shm" {print $4; exit}' /etc/fstab
+  register: mount_options_existing
+  changed_when: false
+  check_mode: false
+
+- name: Merge the hardening flags into the existing options
+  ansible.builtin.set_fact:
+    mount_options_shm_opts: >-
+      {{ (mount_options_existing.stdout or 'defaults').split(',')
+         | union(mount_options_shm_flags) | join(',') }}
+
+- name: Pin /dev/shm in fstab and mount it with the hardened options
+  ansible.posix.mount:
+    path: /dev/shm
+    src: tmpfs
+    fstype: tmpfs
+    opts: "{{ mount_options_shm_opts }}"
+    state: mounted
+
+# The mount module keys its remount off the fstab line — if someone later
+# remounted /dev/shm with exec but fstab never drifted, it would look "ok".
+# Check the LIVE options and remount only when a flag is actually missing,
+# so a second pass changes nothing and live drift still gets corrected.
+- name: Read the live mount options of /dev/shm
+  ansible.builtin.command: findmnt -no OPTIONS /dev/shm
+  register: mount_options_live
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+# state: remounted applies the opts live without touching fstab. It always
+# reports "changed", so the when-guard above is what keeps a second pass at
+# changed=0 — it only fires when a flag is genuinely missing.
+- name: Remount /dev/shm if a hardening flag is missing live
+  ansible.posix.mount:
+    path: /dev/shm
+    src: tmpfs
+    fstype: tmpfs
+    opts: "{{ mount_options_shm_opts }}"
+    state: remounted
+  when:
+    - mount_options_live.rc == 0
+    - mount_options_shm_flags | difference(mount_options_live.stdout.split(',')) | length > 0
