@@ -139,6 +139,21 @@ on_node grep -qE '^[^#].*[[:space:]]/dev/shm[[:space:]].*nodev' /etc/fstab \
   && P "/dev/shm options pinned in fstab (survive reboots)" \
   || W "/dev/shm options not in fstab" "pin 'tmpfs /dev/shm tmpfs defaults,nodev,nosuid,noexec 0 0'"
 
+echo "-- Warning banners (CIS 1.7) --------------------------------"
+[ "$(val banner)" != "none" ] && [ -n "$(val banner)" ] \
+  && P "sshd presents a pre-auth banner ($(val banner))" \
+  || W "sshd has no pre-auth banner" "set Banner /etc/issue.net (banners role)"
+on_node grep -Eq '\\[mrsv]|Debian|Ubuntu' /etc/issue \
+  && W "/etc/issue leaks OS/kernel info" "replace with a plain legal notice" \
+  || P "/etc/issue has no OS/kernel leak"
+on_node grep -Eq '\\[mrsv]|Debian|Ubuntu' /etc/issue.net \
+  && W "/etc/issue.net leaks OS/kernel info" "replace with a plain legal notice" \
+  || P "/etc/issue.net has no OS/kernel leak"
+perm_issue=$(on_node stat -c '%a %U %G' /etc/issue.net)
+[ "$perm_issue" = "644 root root" ] \
+  && P "banner file permissions sane (644 root:root)" \
+  || W "issue.net is $perm_issue" "chown root:root && chmod 644"
+
 echo "-- Accounts & files -----------------------------------------"
 on_node getent group sudo | grep -qE ':.*[a-z]' \
   && P "A non-root sudo account exists ($(on_node getent group sudo | sed 's/.*://'))" \

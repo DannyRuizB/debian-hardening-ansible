@@ -16,3 +16,4 @@
     - sysctl_hardening
     - account_policies
     - mount_options
+    - banners

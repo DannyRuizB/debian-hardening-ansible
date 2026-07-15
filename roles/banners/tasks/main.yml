@@ -1,0 +1,29 @@
+---
+# Warning banners — mirrors step 9 of harden.sh in the sibling Bash repo:
+# CIS 1.7 legal notice, presented by sshd before authentication.
+
+- name: Write the legal notice to the banner files
+  ansible.builtin.copy:
+    content: "{{ banners_text }}\n"
+    dest: "{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - /etc/issue
+    - /etc/issue.net
+    - /etc/motd
+
+# Own drop-in — deliberately NOT ssh_hardening's 99-hardening.conf — so the
+# two roles stay independently toggleable. 'validate' runs sshd -t on the
+# rendered file BEFORE it replaces the live one: a broken config never
+# goes live (same lockout-guard spirit as everywhere else in this repo).
+- name: Point sshd at the pre-auth banner
+  ansible.builtin.copy:
+    content: "Banner /etc/issue.net\n"
+    dest: /etc/ssh/sshd_config.d/98-banner.conf
+    owner: root
+    group: root
+    mode: "0644"
+    validate: "sshd -t -f %s"
+  notify: Reload ssh for banner
