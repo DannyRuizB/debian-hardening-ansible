@@ -1,0 +1,7 @@
+---
+# Flags every hardened /dev/shm must carry (CIS 1.1.2.2). World-writable
+# shared memory with exec/suid/dev allowed is the classic staging ground
+# for droppers. /tmp is deliberately NOT handled by this role: a noexec
+# /tmp breaks well-behaved installers, and Debian doesn't ship it as a
+# separate mount anyway.
+mount_options_shm_flags: [nodev, nosuid, noexec]
