@@ -14,11 +14,20 @@
   changed_when: false
   check_mode: false
 
+# Deliberately NOT union(): set filters lost their stable order in modern
+# ansible-core (per-process hash randomization), so union could emit the
+# options in a different order on every run — rewriting fstab each time and
+# breaking idempotence. reject('in', ...) keeps order deterministic.
+- name: Split the existing options into a list
+  ansible.builtin.set_fact:
+    mount_options_existing_list: "{{ (mount_options_existing.stdout or 'defaults').split(',') }}"
+
 - name: Merge the hardening flags into the existing options
   ansible.builtin.set_fact:
     mount_options_shm_opts: >-
-      {{ (mount_options_existing.stdout or 'defaults').split(',')
-         | union(mount_options_shm_flags) | join(',') }}
+      {{ (mount_options_existing_list
+          + (mount_options_shm_flags | reject('in', mount_options_existing_list) | list))
+         | join(',') }}
 
 - name: Pin /dev/shm in fstab and mount it with the hardened options
   ansible.posix.mount:
