@@ -125,6 +125,30 @@ else
 fi
 on_node rm -f /dev/shm/dha-probe 2>/dev/null || true
 
+echo "== Warning banners (CIS 1.7) =="
+expect_line "sshd effective config: banner /etc/issue.net" \
+  "^banner /etc/issue.net$" sudo sshd -T
+expect_line "/etc/issue.net carries the legal notice" \
+  "Authorized access only" cat /etc/issue.net
+expect_line "/etc/issue carries the legal notice" \
+  "Authorized access only" cat /etc/issue
+# The point of the CIS control: no OS/kernel reconnaissance before login.
+if on_node grep -Eq '(\\\\[mrsv]|Debian|Ubuntu)' /etc/issue /etc/issue.net /etc/motd 2>/dev/null; then
+  fail "banner files leak no OS/kernel info (no \\m \\r \\s \\v escapes, no distro name)"
+else
+  pass "banner files leak no OS/kernel info (no \\m \\r \\s \\v escapes, no distro name)"
+fi
+# Functional, from the outside: sshd must show the banner BEFORE
+# authentication — an unauthenticated (failing) connection still sees it.
+# Captured first: the ssh is EXPECTED to fail (auth denied), and under
+# pipefail its non-zero status would mask a successful grep.
+banner_out=$(ssh "${OPTS[@]}" -o ConnectTimeout=3 nobody-here@127.0.0.1 true 2>&1 || true)
+if echo "$banner_out" | grep -q "Authorized access only"; then
+  pass "the banner reaches an unauthenticated client pre-auth"
+else
+  fail "the banner reaches an unauthenticated client pre-auth"
+fi
+
 # LAST on purpose: banning the client cuts our own SSH access to the node.
 echo "== Fail2Ban really bans =="
 # Attack with a mix of NON-existent usernames (root/admin/oracle/...), the way a

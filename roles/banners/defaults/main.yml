@@ -1,0 +1,7 @@
+---
+# The legal notice shown in /etc/issue, /etc/issue.net and /etc/motd, and by
+# sshd BEFORE authentication. Keep it free of OS/kernel info (no \m \r \s \v
+# escapes, no distro name): the stock Debian files advertise the exact OS to
+# anyone who connects, before any login. The warning is also what makes
+# session monitoring legally defensible.
+banners_text: "Authorized access only. All activity may be monitored and reported."

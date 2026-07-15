@@ -1,0 +1,7 @@
+---
+# Distinct name from ssh_hardening's "Reload ssh": handler names are global
+# to the play, and two roles notifying the same name is ambiguous.
+- name: Reload ssh for banner
+  ansible.builtin.systemd:
+    name: ssh
+    state: reloaded
