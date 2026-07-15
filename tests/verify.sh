@@ -149,6 +149,29 @@ else
   fail "the banner reaches an unauthenticated client pre-auth"
 fi
 
+echo "== Sudo hardening (CIS 5.3) =="
+expect_line "sudoers drop-in sets use_pty" "^Defaults use_pty$" \
+  sudo cat /etc/sudoers.d/99-hardening-sudo
+expect_line "sudoers drop-in sets a dedicated logfile" \
+  '^Defaults logfile="/var/log/sudo.log"$' \
+  sudo cat /etc/sudoers.d/99-hardening-sudo
+# Functional: with use_pty, sudo runs the command in a NEW pseudo-terminal
+# that proxies the caller's — so from a forced-tty session (-tt), `tty`
+# outside and inside sudo must report DIFFERENT /dev/pts/N. Without
+# use_pty they'd be the same one. (With no tty at all sudo allocates
+# nothing — there is nothing to proxy — hence the forced -tt here.)
+ptys=$(ssh "${OPTS[@]}" -tt -i "$KEY" opsadmin@127.0.0.1 'tty && sudo -n tty' 2>/dev/null | tr -d '\r')
+pty_outer=$(echo "$ptys" | sed -n 1p)
+pty_inner=$(echo "$ptys" | sed -n 2p)
+if echo "$pty_inner" | grep -q "^/dev/pts/" && [ "$pty_inner" != "$pty_outer" ]; then
+  pass "sudo really allocates its own pty for commands (use_pty live: $pty_outer -> $pty_inner)"
+else
+  fail "sudo really allocates its own pty for commands (use_pty live: got '$pty_outer' -> '$pty_inner')"
+fi
+# Functional: the command above must land in the dedicated log.
+expect_line "sudo activity lands in /var/log/sudo.log" \
+  "COMMAND=.*tty" sudo cat /var/log/sudo.log
+
 # LAST on purpose: banning the client cuts our own SSH access to the node.
 echo "== Fail2Ban really bans =="
 # Attack with a mix of NON-existent usernames (root/admin/oracle/...), the way a

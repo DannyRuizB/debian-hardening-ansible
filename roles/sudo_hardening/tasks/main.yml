@@ -1,0 +1,19 @@
+---
+# Sudo hardening — mirrors step 10 of harden.sh in the sibling Bash repo:
+# CIS 5.3. use_pty runs every sudo command in its own pseudo-terminal (no
+# keystroke injection into the calling tty once sudo exits); the dedicated
+# logfile puts sudo activity in one place instead of scattered through
+# auth.log — the first thing a forensics pass wants.
+#
+# 'validate' runs visudo on the rendered file BEFORE it replaces the live
+# drop-in: a bad rule can never break sudo (same guard as admin_user's rule).
+- name: Harden sudo (use_pty + dedicated logfile, visudo-validated)
+  ansible.builtin.copy:
+    content: |
+      Defaults use_pty
+      Defaults logfile="/var/log/sudo.log"
+    dest: /etc/sudoers.d/99-hardening-sudo
+    owner: root
+    group: root
+    mode: "0440"
+    validate: "visudo -cf %s"
