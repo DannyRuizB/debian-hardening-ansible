@@ -172,6 +172,36 @@ fi
 expect_line "sudo activity lands in /var/log/sudo.log" \
   "COMMAND=.*tty" sudo cat /var/log/sudo.log
 
+echo "== SSH session policies (CIS 5.2) =="
+expect_line "sshd effective config: allowtcpforwarding no" \
+  "^allowtcpforwarding no$" sudo sshd -T
+expect_line "sshd effective config: allowagentforwarding no" \
+  "^allowagentforwarding no$" sudo sshd -T
+expect_line "sshd effective config: maxsessions 4" \
+  "^maxsessions 4$" sudo sshd -T
+expect_line "sshd effective config: loglevel VERBOSE" \
+  "^loglevel VERBOSE$" sudo sshd -T
+expect_line "sshd effective config: permituserenvironment no" \
+  "^permituserenvironment no$" sudo sshd -T
+# Functional: a direct-tcpip channel (ssh -W, same mechanism as -L tunnels)
+# must be refused by the server — "administratively prohibited". The login
+# itself still works (checked at the top), only the pivoting is gone.
+tunnel_out=$(ssh "${OPTS[@]}" -i "$KEY" -W 127.0.0.1:22 opsadmin@127.0.0.1 </dev/null 2>&1 || true)
+if echo "$tunnel_out" | grep -qi "administratively prohibited"; then
+  pass "a forwarding channel really gets refused (administratively prohibited)"
+else
+  fail "a forwarding channel really gets refused (got: $(echo "$tunnel_out" | head -1))"
+fi
+# Functional: the accepted key's fingerprint must be in the auth log —
+# the line every forensics pass greps for first (the node logs to journald;
+# fail2ban reads it from there). TRAP: expect_line pipes into `grep -q`,
+# which exits on the first match — under `pipefail` a big remote output
+# (the whole journal) dies of SIGPIPE and the check "fails" despite the
+# match. Filter remotely, return a few lines, and force rc 0.
+expect_line "auth log records the key fingerprint of our login" \
+  "Accepted publickey.*SHA256:" \
+  sudo sh -c '"journalctl -u ssh --no-pager 2>/dev/null | grep \"Accepted publickey\" | tail -3 || true"'
+
 # LAST on purpose: banning the client cuts our own SSH access to the node.
 echo "== Fail2Ban really bans =="
 # Attack with a mix of NON-existent usernames (root/admin/oracle/...), the way a

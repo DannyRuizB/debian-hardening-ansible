@@ -67,11 +67,14 @@ the options survive a reboot. The `banners` role added a **Warning banners
 `/etc/issue` and `/etc/issue.net` leak no OS/kernel info, and the banner file
 permissions are sane. The `sudo_hardening` role added a **Sudo hardening
 (CIS 5.3)** section with four more: sudo installed, `use_pty`, the dedicated
-logfile, and the drop-in's permissions. Current score on a freshly hardened
-node:
+logfile, and the drop-in's permissions. The `ssh_policies` role added an
+**SSH: session policies (CIS 5.2)** section with eight more: TCP and agent
+forwarding off, `MaxSessions` / `MaxStartups` caps, `LogLevel VERBOSE`, no
+user environment, no host-based auth, rhosts ignored. Current score on a
+freshly hardened node:
 
 ```
- Score: 41 PASS, 0 WARN, 0 FAIL  ->  100% compliant
+ Score: 49 PASS, 0 WARN, 0 FAIL  ->  100% compliant
 ```
 
 ## Honesty

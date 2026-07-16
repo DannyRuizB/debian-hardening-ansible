@@ -62,6 +62,32 @@ echo "-- SSH: hardening extras (CIS) ------------------------------"
   && P "Idle sessions time out (ClientAliveInterval $(val clientaliveinterval))" \
   || W "No idle-session timeout (ClientAliveInterval $(val clientaliveinterval))" "add 'ClientAliveInterval 300'"
 
+echo "-- SSH: session policies (CIS 5.2) --------------------------"
+[ "$(val allowtcpforwarding)" = no ] \
+  && P "TCP forwarding disabled (no pivoting through the host)" \
+  || W "TCP forwarding enabled" "add 'AllowTcpForwarding no' (ssh_policies role)"
+[ "$(val allowagentforwarding)" = no ] \
+  && P "Agent forwarding disabled" \
+  || W "Agent forwarding enabled" "add 'AllowAgentForwarding no'"
+[ "$(val maxsessions)" -le 10 ] 2>/dev/null \
+  && P "MaxSessions capped ($(val maxsessions))" \
+  || W "MaxSessions is $(val maxsessions) (CIS: <= 10)" "add 'MaxSessions 4'"
+echo "$sshd_conf" | grep -q '^maxstartups 10:30:60' \
+  && P "MaxStartups throttled (10:30:60)" \
+  || W "MaxStartups is $(val maxstartups)" "add 'MaxStartups 10:30:60'"
+[ "$(val loglevel)" = VERBOSE ] \
+  && P "LogLevel VERBOSE (logins log the key fingerprint)" \
+  || W "LogLevel is $(val loglevel)" "add 'LogLevel VERBOSE'"
+[ "$(val permituserenvironment)" = no ] \
+  && P "User environment not honored at login" \
+  || W "PermitUserEnvironment enabled" "add 'PermitUserEnvironment no'"
+[ "$(val hostbasedauthentication)" = no ] \
+  && P "Host-based authentication disabled" \
+  || W "Host-based auth enabled" "add 'HostbasedAuthentication no'"
+[ "$(val ignorerhosts)" = yes ] \
+  && P "Legacy rhosts files ignored" \
+  || W "rhosts honored" "add 'IgnoreRhosts yes'"
+
 echo "-- Firewall -------------------------------------------------"
 on_node ufw status | grep -q "Status: active" \
   && P "Host firewall (UFW) active" \

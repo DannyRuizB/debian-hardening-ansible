@@ -1,0 +1,34 @@
+---
+# SSH session policies — mirrors step 11 of harden.sh in the sibling Bash
+# repo: CIS 5.2. ssh_hardening decides WHO gets in (auth); this role limits
+# WHAT a session may do once inside: no TCP/agent forwarding (an account
+# with a locked-down shell is still a SOCKS pivot into the network
+# otherwise), session/connection caps, verbose logging (logins record the
+# key fingerprint), no user-controlled environment, no legacy rhosts trust,
+# and empty passwords are never a valid credential.
+#
+# Own drop-in — deliberately NOT ssh_hardening's 99-hardening.conf nor the
+# banner's 98-banner.conf — so the roles stay independently toggleable. No
+# keyword here repeats another drop-in's: in sshd the FIRST occurrence wins,
+# so a duplicate would silently fight over precedence by filename.
+# 'validate' runs sshd -t on the rendered file BEFORE it replaces the live
+# one: a broken config never goes live.
+- name: Limit what an SSH session may do (CIS 5.2 policies)
+  ansible.builtin.copy:
+    content: |
+      # Managed by Ansible (ssh_policies role). Edit the role, not this file.
+      LogLevel VERBOSE
+      AllowTcpForwarding no
+      AllowAgentForwarding no
+      MaxSessions {{ ssh_policies_max_sessions }}
+      MaxStartups {{ ssh_policies_max_startups }}
+      PermitUserEnvironment no
+      HostbasedAuthentication no
+      IgnoreRhosts yes
+      PermitEmptyPasswords no
+    dest: /etc/ssh/sshd_config.d/97-hardening-policies.conf
+    owner: root
+    group: root
+    mode: "0644"
+    validate: "sshd -t -f %s"
+  notify: Reload ssh for session policies
