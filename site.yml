@@ -18,3 +18,4 @@
     - mount_options
     - banners
     - sudo_hardening
+    - ssh_policies

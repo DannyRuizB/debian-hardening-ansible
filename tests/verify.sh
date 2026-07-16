@@ -34,6 +34,14 @@ expect_line() {
   if on_node "$@" 2>/dev/null | grep -E -q "$regex"; then pass "$desc"; else fail "$desc"; fi
 }
 
+# With LogLevel VERBOSE (ssh_policies) every deliberately-failed probe below
+# (root login, the pre-auth banner check) is worth SEVERAL journal lines to
+# fail2ban — enough to land a mid-run ban long before the final section
+# tests banning on purpose. Shield this client while the functional checks
+# run; the shield is lifted right before the ban test. ignoreip means the
+# probes are never counted, so that test still starts from zero.
+docker exec dh-test-node fail2ban-client set sshd addignoreip 172.17.0.1 >/dev/null 2>&1 || true
+
 echo "== Won't lock you out =="
 expect_ok "admin user logs in with their key" true
 expect_ok "admin user has passwordless sudo" sudo -n true
@@ -172,7 +180,39 @@ fi
 expect_line "sudo activity lands in /var/log/sudo.log" \
   "COMMAND=.*tty" sudo cat /var/log/sudo.log
 
+echo "== SSH session policies (CIS 5.2) =="
+expect_line "sshd effective config: allowtcpforwarding no" \
+  "^allowtcpforwarding no$" sudo sshd -T
+expect_line "sshd effective config: allowagentforwarding no" \
+  "^allowagentforwarding no$" sudo sshd -T
+expect_line "sshd effective config: maxsessions 4" \
+  "^maxsessions 4$" sudo sshd -T
+expect_line "sshd effective config: loglevel VERBOSE" \
+  "^loglevel VERBOSE$" sudo sshd -T
+expect_line "sshd effective config: permituserenvironment no" \
+  "^permituserenvironment no$" sudo sshd -T
+# Functional: a direct-tcpip channel (ssh -W, same mechanism as -L tunnels)
+# must be refused by the server — "administratively prohibited". The login
+# itself still works (checked at the top), only the pivoting is gone.
+tunnel_out=$(ssh "${OPTS[@]}" -i "$KEY" -W 127.0.0.1:22 opsadmin@127.0.0.1 </dev/null 2>&1 || true)
+if echo "$tunnel_out" | grep -qi "administratively prohibited"; then
+  pass "a forwarding channel really gets refused (administratively prohibited)"
+else
+  fail "a forwarding channel really gets refused (got: $(echo "$tunnel_out" | head -1))"
+fi
+# Functional: the accepted key's fingerprint must be in the auth log —
+# the line every forensics pass greps for first (the node logs to journald;
+# fail2ban reads it from there). TRAP: expect_line pipes into `grep -q`,
+# which exits on the first match — under `pipefail` a big remote output
+# (the whole journal) dies of SIGPIPE and the check "fails" despite the
+# match. Filter remotely, return a few lines, and force rc 0.
+expect_line "auth log records the key fingerprint of our login" \
+  "Accepted publickey.*SHA256:" \
+  sudo sh -c '"journalctl -u ssh --no-pager 2>/dev/null | grep \"Accepted publickey\" | tail -3 || true"'
+
 # LAST on purpose: banning the client cuts our own SSH access to the node.
+# Lift the shield installed at the top — from here on we WANT to be bannable.
+docker exec dh-test-node fail2ban-client set sshd delignoreip 172.17.0.1 >/dev/null 2>&1 || true
 echo "== Fail2Ban really bans =="
 # Attack with a mix of NON-existent usernames (root/admin/oracle/...), the way a
 # real bot does. These log as 'Invalid user' from the sshd-session process on

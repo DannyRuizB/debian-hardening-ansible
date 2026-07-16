@@ -1,0 +1,7 @@
+---
+# Distinct name from the other roles' reload handlers: handler names are
+# global to the play, and two roles notifying the same name is ambiguous.
+- name: Reload ssh for session policies
+  ansible.builtin.systemd:
+    name: ssh
+    state: reloaded
