@@ -210,6 +210,20 @@ expect_line "auth log records the key fingerprint of our login" \
   "Accepted publickey.*SHA256:" \
   sudo sh -c '"journalctl -u ssh --no-pager 2>/dev/null | grep \"Accepted publickey\" | tail -3 || true"'
 
+echo "== Core dump limits (CIS 1.5) =="
+# The limit must arrive through PAM at login — ask a REAL SSH session for its
+# ulimit, not the file we wrote. (ssh hands the command to the login shell,
+# so ulimit runs as a builtin in a PAM-opened session.)
+expect_line "a fresh SSH session has hard core limit 0" '^0$' ulimit -Hc
+# hard, not soft: the session must be unable to raise it back.
+if on_node 'ulimit -c 1024' >/dev/null 2>&1; then
+  fail "the hard core limit cannot be raised back up"
+else
+  pass "the hard core limit cannot be raised back up"
+fi
+# root does not match '*' in limits.conf — its own line must cover it.
+expect_line "root's sessions have hard core limit 0 too" '^0$' sudo -i ulimit -Hc
+
 # LAST on purpose: banning the client cuts our own SSH access to the node.
 # Lift the shield installed at the top — from here on we WANT to be bannable.
 docker exec dh-test-node fail2ban-client set sshd delignoreip 172.17.0.1 >/dev/null 2>&1 || true

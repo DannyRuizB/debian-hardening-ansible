@@ -1,0 +1,41 @@
+---
+# Core dump limits — mirrors step 12 of harden.sh in the sibling Bash repo:
+# CIS 1.5. A core dump is the crashed process's memory written to disk:
+# keys, passwords, session tokens — everything it held when it died.
+# Three doors, three locks: the ulimit door closes here (hard = the session
+# cannot raise it back; '*' never matches root in limits.conf, so root gets
+# its own line — a classic gap), the systemd-coredump door gets Storage=none
+# in case that collector is ever installed (it bypasses ulimit entirely),
+# and the setuid door (fs.suid_dumpable=0) is already locked by the
+# sysctl_hardening role. No handler: limits apply to every NEW session via
+# pam_limits, nothing needs a reload.
+- name: Hard core limit 0 for every account (root included)
+  ansible.builtin.copy:
+    content: |
+      # Managed by Ansible (coredump_limits role). Edit the role, not this file.
+      *    hard    core    0
+      root hard    core    0
+    dest: /etc/security/limits.d/99-hardening-coredumps.conf
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Drop-in directory for systemd-coredump
+  ansible.builtin.file:
+    path: /etc/systemd/coredump.conf.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Cap systemd-coredump off (Storage=none, ProcessSizeMax=0)
+  ansible.builtin.copy:
+    content: |
+      # Managed by Ansible (coredump_limits role). Edit the role, not this file.
+      [Coredump]
+      Storage=none
+      ProcessSizeMax=0
+    dest: /etc/systemd/coredump.conf.d/99-hardening.conf
+    owner: root
+    group: root
+    mode: "0644"
