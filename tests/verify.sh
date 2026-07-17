@@ -224,6 +224,23 @@ fi
 # root does not match '*' in limits.conf — its own line must cover it.
 expect_line "root's sessions have hard core limit 0 too" '^0$' sudo -i ulimit -Hc
 
+echo "== Default umask & shell timeout (CIS 5.4) =="
+# A login shell must pick up the 027 default (profile.d and/or pam_umask).
+expect_line "a login shell defaults to umask 027" '^0?027$' bash -lc umask
+# The proof by consequence: a file created in that session is not
+# world-readable (640, not 644).
+expect_line "a file created in a login session is not world-readable" \
+  '^640$' bash -lc '"rm -f /tmp/umask_probe && touch /tmp/umask_probe && stat -c %a /tmp/umask_probe"'
+# TMOUT arrives in login shells and is readonly: assigning to it must fail.
+# TRAP: the remote outer shell (non-login) expands $TMOUT BEFORE the inner
+# `bash -l` runs — escape the dollar so the login shell does the expansion.
+expect_line "login shells carry TMOUT=900" '^900$' bash -lc '"echo \$TMOUT"'
+if on_node bash -lc '"TMOUT=5"' >/dev/null 2>&1; then
+  fail "TMOUT is readonly (a session cannot raise or unset it)"
+else
+  pass "TMOUT is readonly (a session cannot raise or unset it)"
+fi
+
 # LAST on purpose: banning the client cuts our own SSH access to the node.
 # Lift the shield installed at the top — from here on we WANT to be bannable.
 docker exec dh-test-node fail2ban-client set sshd delignoreip 172.17.0.1 >/dev/null 2>&1 || true

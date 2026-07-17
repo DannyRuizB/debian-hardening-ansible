@@ -1,0 +1,39 @@
+---
+# Default umask & shell timeout — mirrors step 13 of harden.sh in the
+# sibling Bash repo: CIS 5.4. The stock umask 022 makes every new file
+# world-readable (logs, dumps, home directories); 027 shuts the world
+# out while keeping group read. Two doors: login.defs (pam_umask applies
+# it to every PAM session where enabled) and a profile.d drop-in (login
+# shells source it even where pam_umask is absent). TMOUT closes the
+# third classic gap — the unlocked terminal someone walked away from —
+# and readonly means the session can't unset or raise it. No handler:
+# both apply to every NEW session, nothing needs a reload.
+- name: Set UMASK in login.defs (pam_umask reads it)
+  ansible.builtin.lineinfile:
+    path: /etc/login.defs
+    regexp: '^UMASK\s'
+    line: "UMASK\t\t{{ umask_tmout_umask }}"
+    state: present
+
+- name: Default umask for login shells (profile.d)
+  ansible.builtin.copy:
+    content: |
+      # Managed by Ansible (umask_tmout role). Edit the role, not this file.
+      umask {{ umask_tmout_umask }}
+    dest: /etc/profile.d/99-hardening-umask.sh
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Idle shell timeout, readonly (profile.d)
+  ansible.builtin.copy:
+    content: |
+      # Managed by Ansible (umask_tmout role). Edit the role, not this file.
+      # Idle interactive shells log out after {{ umask_tmout_seconds }} seconds.
+      # readonly so the session cannot unset or raise it.
+      readonly TMOUT={{ umask_tmout_seconds }}
+      export TMOUT
+    dest: /etc/profile.d/99-hardening-tmout.sh
+    owner: root
+    group: root
+    mode: "0644"
