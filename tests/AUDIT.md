@@ -70,11 +70,14 @@ permissions are sane. The `sudo_hardening` role added a **Sudo hardening
 logfile, and the drop-in's permissions. The `ssh_policies` role added an
 **SSH: session policies (CIS 5.2)** section with eight more: TCP and agent
 forwarding off, `MaxSessions` / `MaxStartups` caps, `LogLevel VERBOSE`, no
-user environment, no host-based auth, rhosts ignored. Current score on a
-freshly hardened node:
+user environment, no host-based auth, rhosts ignored. The `coredump_limits`
+role added a **Core dumps (CIS 1.5)** section with four more: `* hard core 0`
+and root's own `hard core 0` line (`*` never matches root), plus
+systemd-coredump capped off (`Storage=none`, `ProcessSizeMax=0`). Current
+score on a freshly hardened node:
 
 ```
- Score: 49 PASS, 0 WARN, 0 FAIL  ->  100% compliant
+ Score: 53 PASS, 0 WARN, 0 FAIL  ->  100% compliant
 ```
 
 ## Honesty

@@ -19,3 +19,4 @@
     - banners
     - sudo_hardening
     - ssh_policies
+    - coredump_limits
