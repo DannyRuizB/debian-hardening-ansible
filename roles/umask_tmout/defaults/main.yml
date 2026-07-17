@@ -1,0 +1,5 @@
+---
+# CIS suggests 027 or stricter; 077 also passes the audit. TMOUT at or
+# under 900 seconds (15 minutes).
+umask_tmout_umask: "027"
+umask_tmout_seconds: 900

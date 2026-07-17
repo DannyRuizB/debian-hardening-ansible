@@ -209,6 +209,22 @@ on_node grep -rqsE '^ProcessSizeMax=0' /etc/systemd/coredump.conf /etc/systemd/c
   && P "systemd-coredump processing capped (ProcessSizeMax=0)" \
   || W "systemd-coredump would still process dumps" "set ProcessSizeMax=0 (coredump_limits role)"
 
+echo "-- Umask & shell timeout (CIS 5.4) --------------------------"
+umask_defs=$(on_node grep -E '^UMASK[[:space:]]' /etc/login.defs | awk '{print $2}')
+[ "$umask_defs" = "027" ] || [ "$umask_defs" = "077" ] \
+  && P "login.defs UMASK is restrictive ($umask_defs)" \
+  || W "login.defs UMASK is ${umask_defs:-unset}" "set UMASK 027 (umask_tmout role)"
+on_node grep -rqsE '^umask[[:space:]]+0?27' /etc/profile.d \
+  && P "profile.d sets umask 027 for login shells" \
+  || W "no profile.d umask drop-in" "add umask 027 (umask_tmout role)"
+tmout_val=$(on_node grep -rhsE '^readonly TMOUT=' /etc/profile.d | head -1 | cut -d= -f2)
+[ -n "$tmout_val" ] && [ "$tmout_val" -le 900 ] 2>/dev/null \
+  && P "shell timeout set and readonly (TMOUT=$tmout_val)" \
+  || W "no readonly TMOUT in profile.d" "add readonly TMOUT=900 (umask_tmout role)"
+on_node grep -rqsE '^export TMOUT' /etc/profile.d \
+  && P "TMOUT is exported to the session" \
+  || W "TMOUT not exported" "add export TMOUT (umask_tmout role)"
+
 echo "-- Accounts & files -----------------------------------------"
 on_node getent group sudo | grep -qE ':.*[a-z]' \
   && P "A non-root sudo account exists ($(on_node getent group sudo | sed 's/.*://'))" \

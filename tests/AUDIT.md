@@ -73,11 +73,14 @@ forwarding off, `MaxSessions` / `MaxStartups` caps, `LogLevel VERBOSE`, no
 user environment, no host-based auth, rhosts ignored. The `coredump_limits`
 role added a **Core dumps (CIS 1.5)** section with four more: `* hard core 0`
 and root's own `hard core 0` line (`*` never matches root), plus
-systemd-coredump capped off (`Storage=none`, `ProcessSizeMax=0`). Current
-score on a freshly hardened node:
+systemd-coredump capped off (`Storage=none`, `ProcessSizeMax=0`). The
+`umask_tmout` role added an **Umask & shell timeout (CIS 5.4)** section with
+four more: `UMASK 027` in login.defs, the profile.d umask drop-in, a readonly
+`TMOUT` at or under 900 seconds, and its export. Current score on a freshly
+hardened node:
 
 ```
- Score: 53 PASS, 0 WARN, 0 FAIL  ->  100% compliant
+ Score: 57 PASS, 0 WARN, 0 FAIL  ->  100% compliant
 ```
 
 ## Honesty
