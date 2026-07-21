@@ -225,6 +225,26 @@ on_node grep -rqsE '^export TMOUT' /etc/profile.d \
   && P "TMOUT is exported to the session" \
   || W "TMOUT not exported" "add export TMOUT (umask_tmout role)"
 
+echo "-- Cron restrictions (CIS 5.1) ------------------------------"
+crontab_perm=$(on_node stat -c '%a %U %G' /etc/crontab)
+[ "$crontab_perm" = "600 root root" ] \
+  && P "/etc/crontab is 600 root:root" \
+  || W "/etc/crontab is ${crontab_perm:-missing}" "chmod 600, chown root:root (cron_restrictions role)"
+cron_dirs=$(on_node bash -c 'stat -c "%a %U %G" /etc/cron.hourly /etc/cron.daily /etc/cron.weekly /etc/cron.monthly /etc/cron.d 2>/dev/null | sort -u')
+[ "$cron_dirs" = "700 root root" ] \
+  && P "cron drop-in directories are 700 root:root" \
+  || W "cron dirs are not uniformly 700 root:root" "chmod 700, chown root:root (cron_restrictions role)"
+if on_node test -f /etc/cron.allow && [ "$(on_node stat -c '%a %U %G' /etc/cron.allow)" = "640 root root" ]; then
+  P "cron.allow exists, 640 root:root (allow-list model)"
+else
+  W "no root-only cron.allow" "write cron.allow with just root, 640 (cron_restrictions role)"
+fi
+if on_node test -e /etc/cron.deny; then
+  W "cron.deny still present (deny-list model)" "remove it; the allow-list replaces it"
+else
+  P "cron.deny removed (allow-list replaces the deny-list)"
+fi
+
 echo "-- Accounts & files -----------------------------------------"
 on_node getent group sudo | grep -qE ':.*[a-z]' \
   && P "A non-root sudo account exists ($(on_node getent group sudo | sed 's/.*://'))" \

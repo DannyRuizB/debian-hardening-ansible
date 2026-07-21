@@ -21,3 +21,4 @@
     - ssh_policies
     - coredump_limits
     - umask_tmout
+    - cron_restrictions

@@ -1,0 +1,82 @@
+---
+# Cron restrictions — mirrors step 14 of harden.sh in the sibling Bash
+# repo: CIS 5.1. Scheduled jobs are persistence 101: a foothold that
+# re-runs itself survives reboots and cleanups. Two moves. First, tighten
+# the spool — /etc/crontab and the cron.* drop-in dirs are world-readable
+# by default, leaking commands, paths and timings to any local user.
+# Second, switch crontab/at from Debian's deny-list model (everyone may
+# schedule unless listed in cron.deny) to an allow-list with just root.
+# Existing user crontabs keep RUNNING — the allow-list gates the
+# crontab(1) command, not the daemon — so nothing already deployed
+# breaks; unprivileged users just can't schedule anew. An admin-curated
+# cron.allow is respected: entries are added, never removed. at ships
+# separately and gets the same allow-list only if it's around.
+
+- name: Check whether cron is installed
+  ansible.builtin.stat:
+    path: /etc/crontab
+  register: cron_restrictions_crontab
+
+- name: Restrict cron/at to root (skipped whole when cron is absent)
+  when: cron_restrictions_crontab.stat.exists
+  block:
+    - name: Crontab file is root-only (600 root:root)
+      ansible.builtin.file:
+        path: /etc/crontab
+        owner: root
+        group: root
+        mode: "0600"
+
+    - name: Cron drop-in directories are root-only (700 root:root)
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0700"
+      loop:
+        - /etc/cron.hourly
+        - /etc/cron.daily
+        - /etc/cron.weekly
+        - /etc/cron.monthly
+        - /etc/cron.d
+
+    - name: Allow-list for crontab(1) — root ensured, existing entries kept
+      ansible.builtin.lineinfile:
+        path: /etc/cron.allow
+        line: "{{ item }}"
+        create: true
+        owner: root
+        group: root
+        mode: "0640"
+      loop: "{{ ['root'] + cron_restrictions_allow_users }}"
+
+    - name: Cron deny-list removed (the allow-list replaces it)
+      ansible.builtin.file:
+        path: /etc/cron.deny
+        state: absent
+
+    - name: Check whether at is around (binary or leftover deny-list)
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop:
+        - /usr/bin/at
+        - /etc/at.deny
+      register: cron_restrictions_at
+
+    - name: Same allow-list for at(1), only when at is present
+      ansible.builtin.lineinfile:
+        path: /etc/at.allow
+        line: "{{ item }}"
+        create: true
+        owner: root
+        group: root
+        mode: "0640"
+      loop: "{{ ['root'] + cron_restrictions_allow_users }}"
+      when: cron_restrictions_at.results | map(attribute='stat.exists') | select | list | length > 0
+
+    - name: At deny-list removed too, only when at is present
+      ansible.builtin.file:
+        path: /etc/at.deny
+        state: absent
+      when: cron_restrictions_at.results | map(attribute='stat.exists') | select | list | length > 0
