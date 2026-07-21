@@ -241,6 +241,34 @@ else
   pass "TMOUT is readonly (a session cannot raise or unset it)"
 fi
 
+echo "== Cron restrictions (CIS 5.1) =="
+expect_line "/etc/crontab is 600 root:root" '^600 root root$' \
+  sudo stat -c "'%a %U %G'" /etc/crontab
+# All five drop-in dirs at once: uniform perms collapse to a single line.
+expect_line "the cron.* drop-in dirs are all 700 root:root" '^700 root root$' \
+  sudo bash -c '"stat -c \"%a %U %G\" /etc/cron.hourly /etc/cron.daily /etc/cron.weekly /etc/cron.monthly /etc/cron.d | sort -u | paste -sd:"'
+expect_line "cron.allow exists and is 640 root:root" '^640 root root$' \
+  sudo stat -c "'%a %U %G'" /etc/cron.allow
+if on_node sudo test -e /etc/cron.deny >/dev/null 2>&1; then
+  fail "cron.deny is gone (allow-list model, not deny-list)"
+else
+  pass "cron.deny is gone (allow-list model, not deny-list)"
+fi
+# The allow-list gates crontab(1). rc alone is ambiguous — an ALLOWED user
+# with no crontab also exits 1 ("no crontab for ...") — so read the message.
+deny_out=$(on_node crontab -l 2>&1 || true)
+if printf '%s\n' "$deny_out" | grep -qi "not allowed"; then
+  pass "an unprivileged user cannot use crontab (not on the allow-list)"
+else
+  fail "an unprivileged user cannot use crontab (not on the allow-list)"
+fi
+root_out=$(on_node sudo crontab -l 2>&1 || true)
+if printf '%s\n' "$root_out" | grep -qi "not allowed"; then
+  fail "root is still allowed to use crontab"
+else
+  pass "root is still allowed to use crontab"
+fi
+
 # LAST on purpose: banning the client cuts our own SSH access to the node.
 # Lift the shield installed at the top — from here on we WANT to be bannable.
 docker exec dh-test-node fail2ban-client set sshd delignoreip 172.17.0.1 >/dev/null 2>&1 || true

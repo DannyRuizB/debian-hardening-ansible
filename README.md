@@ -25,7 +25,7 @@ conditionals — not just run ad-hoc commands.
 
 ## What it does
 
-Seven roles, applied in order by `site.yml`:
+Fourteen roles, applied in order by `site.yml`:
 
 | Role | Detail |
 |---|---|
@@ -42,6 +42,7 @@ Seven roles, applied in order by `site.yml`:
 | **ssh_policies** | CIS 5.2, in its own drop-in (`97-hardening-policies.conf`): `ssh_hardening` decides *who gets in*, this role limits *what a session may do once inside*. `AllowTcpForwarding no` + `AllowAgentForwarding no` (an account with a locked-down shell is still a SOCKS pivot into the network otherwise), `MaxSessions 4` and `MaxStartups 10:30:60` (defaults, overridable), `LogLevel VERBOSE` (logins record the key fingerprint), `PermitUserEnvironment no`, `HostbasedAuthentication no`, `IgnoreRhosts yes`, `PermitEmptyPasswords no`. `validate: sshd -t -f %s` so a broken config never goes live. |
 | **coredump_limits** | CIS 1.5: a core dump is the crashed process's memory written to disk — keys, passwords, session tokens included. Three doors, three locks: a `limits.d` drop-in sets `hard core 0` for every account (**root gets its own line** — `*` never matches root in `limits.conf`, a classic gap), a `coredump.conf.d` drop-in caps systemd-coredump off (`Storage=none`, `ProcessSizeMax=0` — if that collector is ever installed it bypasses ulimit entirely), and the setuid door (`fs.suid_dumpable=0`) is already locked by `sysctl_hardening`. No handler: `pam_limits` applies it to every new session. |
 | **umask_tmout** | CIS 5.4: the stock `umask 022` makes every new file world-readable. `UMASK 027` in `login.defs` (pam_umask) **plus** a `profile.d` drop-in for login shells, and `readonly TMOUT=900` — idle interactive shells log out after 15 minutes and the session can't unset it. Umask value and timeout are role defaults, overridable per host. No handler: both apply to every new session. |
+| **cron_restrictions** | CIS 5.1: scheduled jobs are persistence 101 — a foothold that re-runs itself survives reboots and cleanups. `/etc/crontab` goes `600 root:root` and the `cron.*` drop-in dirs `700` (world-readable by default, they leak commands, paths and timings to any local user), and crontab/at switch from Debian's deny-list model to an **allow-list with just root** (`cron.allow`/`at.allow` 640, deny files removed). Existing user crontabs keep running — the allow-list gates `crontab(1)`, not the daemon — and an admin-curated `cron.allow` is respected: entries are added, never removed (extra users via `cron_restrictions_allow_users`). `at` gets the same treatment only if it's installed. |
 
 ### Lockout guard
 

@@ -1,0 +1,4 @@
+---
+# Extra users allowed to run crontab(1)/at(1) besides root. The role only
+# ever ADDS entries — an admin-curated allow-list is respected as-is.
+cron_restrictions_allow_users: []
