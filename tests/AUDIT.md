@@ -82,11 +82,13 @@ added a **Cron restrictions (CIS 5.1)** section with four more: `/etc/crontab`
 (640) and the deny-list gone. The `password_policy` role added a **Password
 policy (CIS 5.3/5.4)** section with four more: `pam_pwquality` wired into
 `common-password`, `minlen >= 14`, `enforce_for_root` (the policy binds root
-too), and `ENCRYPT_METHOD` pinned to a strong crypt (yescrypt or SHA-512).
-Current score on a freshly hardened node:
+too), and `ENCRYPT_METHOD` pinned to a strong crypt (yescrypt or SHA-512). The
+`aide` role added a **File integrity (CIS 1.4)** section with three more: the
+AIDE config is present, the baseline database was built, and a daily check
+timer is enabled. Current score on a freshly hardened node:
 
 ```
- Score: 65 PASS, 0 WARN, 0 FAIL  ->  100% compliant
+ Score: 68 PASS, 0 WARN, 0 FAIL  ->  100% compliant
 ```
 
 ## Honesty

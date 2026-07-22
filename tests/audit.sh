@@ -262,6 +262,17 @@ case "${em:-}" in
   *) W "ENCRYPT_METHOD is ${em:-unset}" "pin ENCRYPT_METHOD YESCRYPT in login.defs (password_policy role)";;
 esac
 
+echo "-- File integrity (AIDE, CIS 1.4) ---------------------------"
+on_node test -f /etc/aide/hardening.conf \
+  && P "AIDE config present" \
+  || W "no AIDE config" "install aide + baseline (aide role)"
+on_node test -s /var/lib/aide/hardening.db \
+  && P "AIDE baseline database built" \
+  || W "no AIDE baseline database" "run aide --init (aide role)"
+[ "$(on_node systemctl is-enabled aide-check.timer 2>/dev/null)" = enabled ] \
+  && P "Daily AIDE check timer enabled" \
+  || W "no daily AIDE check timer" "enable aide-check.timer (aide role)"
+
 echo "-- Accounts & files -----------------------------------------"
 on_node getent group sudo | grep -qE ':.*[a-z]' \
   && P "A non-root sudo account exists ($(on_node getent group sudo | sed 's/.*://'))" \

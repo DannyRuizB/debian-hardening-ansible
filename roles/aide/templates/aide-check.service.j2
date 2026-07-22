@@ -1,0 +1,7 @@
+{{ ansible_managed | comment }}
+[Unit]
+Description=AIDE file-integrity check (debian-hardening)
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/aide --config={{ aide_config }} --check

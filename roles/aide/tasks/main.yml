@@ -1,0 +1,78 @@
+---
+# File integrity with AIDE — mirrors step 16 of harden.sh in the sibling
+# Bash repo: CIS 1.4. Every other role hardens a file; this one notices
+# when someone CHANGES it afterwards. AIDE fingerprints the system
+# binaries and all of /etc into a baseline database, and a systemd timer
+# re-checks daily — a backdoored sudo, an edited /etc/passwd or a new
+# SUID binary shows up as drift instead of staying invisible.
+#
+# Own config + DB (not Debian's aide-common machinery): the default
+# aide.conf watches most of the filesystem, whose baseline is huge and
+# slow to build. Scoping to what matters after a compromise keeps the
+# daily check fast and the config deterministic (so the role is idempotent).
+- name: Install AIDE
+  ansible.builtin.apt:
+    name: aide
+    state: present
+
+- name: Ensure the config and database directories exist
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - /etc/aide
+    - /var/lib/aide
+
+- name: Write the AIDE config (scoped to binaries + /etc)
+  ansible.builtin.template:
+    src: hardening.conf.j2
+    dest: "{{ aide_config }}"
+    owner: root
+    group: root
+    mode: "0644"
+  register: aide_conf
+
+- name: Check whether the baseline database exists
+  ansible.builtin.stat:
+    path: "{{ aide_database }}"
+  register: aide_db
+
+# Build the baseline only when the ruleset changed or there is no DB yet.
+# Rebuilding on every run would be slow AND would paper over real drift —
+# the whole point is to detect it. Same logic as the Bash twin's `rebuild`
+# flag. The command writes database_out (.db.new); the next task moves it.
+- name: Build the AIDE baseline (first run can take a minute)
+  ansible.builtin.command:
+    cmd: "aide --config={{ aide_config }} --init"
+  when: aide_conf is changed or not aide_db.stat.exists
+  changed_when: true
+
+- name: Move the freshly built baseline into place
+  ansible.builtin.command:
+    cmd: "mv -f {{ aide_database }}.new {{ aide_database }}"
+    removes: "{{ aide_database }}.new"
+
+- name: Install the daily check service and timer
+  ansible.builtin.template:
+    src: "{{ item.src }}"
+    dest: "/etc/systemd/system/{{ item.dest }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - { src: aide-check.service.j2, dest: aide-check.service }
+    - { src: aide-check.timer.j2, dest: aide-check.timer }
+
+- name: Enable the daily AIDE check timer
+  ansible.builtin.systemd_service:
+    name: aide-check.timer
+    enabled: true
+    daemon_reload: true
+  # In --check the timer unit above is not actually written, so enabling it
+  # would fail with "Could not find the requested service" — the classic
+  # dry-run trap of an action that depends on something the rehearsal did
+  # not create. Skip it in check mode; a real run creates the unit first.
+  when: not ansible_check_mode
