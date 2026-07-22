@@ -1,0 +1,47 @@
+---
+# Password policy — mirrors step 15 of harden.sh in the sibling Bash repo:
+# CIS 5.3/5.4. The aging role (account_policies) decides WHEN a password
+# must change; this one decides WHAT it may be and HOW it is stored.
+# libpam-pwquality gates every PAM password change (Debian wires it into
+# common-password on install via pam-auth-update), and enforce_for_root
+# closes the classic hole where root "fixing" an account types temp123
+# straight past the policy. The hashing side: Debian's PAM already
+# defaults to yescrypt, but chpasswd/newusers read ENCRYPT_METHOD from
+# login.defs — pin it so no path quietly falls back to a weaker crypt.
+# No handler: both apply to every NEW password change, nothing reloads.
+- name: Install libpam-pwquality (and the cracklib dictionary it needs)
+  ansible.builtin.apt:
+    name:
+      # cracklib-runtime is explicit on purpose: it is only a Recommends
+      # of libpwquality1, and without the dictionary pwquality fails
+      # CLOSED — every password rejected with "error loading dictionary".
+      # The Bash twin's e2e caught exactly that on a no-recommends image.
+      - libpam-pwquality
+      - cracklib-runtime
+    state: present
+
+- name: Password quality rules in pwquality.conf
+  ansible.builtin.lineinfile:
+    path: /etc/security/pwquality.conf
+    regexp: '^#?\s*{{ item.key }}\s*='
+    line: "{{ item.key }} = {{ item.value }}"
+    state: present
+  loop:
+    - { key: "minlen", value: "{{ password_policy_minlen }}" }
+    - { key: "minclass", value: "{{ password_policy_minclass }}" }
+    - { key: "maxrepeat", value: "{{ password_policy_maxrepeat }}" }
+    - { key: "retry", value: "{{ password_policy_retry }}" }
+
+- name: The policy binds root too (enforce_for_root)
+  ansible.builtin.lineinfile:
+    path: /etc/security/pwquality.conf
+    regexp: '^#?\s*enforce_for_root\s*$'
+    line: enforce_for_root
+    state: present
+
+- name: Pin the password hashing algorithm in login.defs
+  ansible.builtin.lineinfile:
+    path: /etc/login.defs
+    regexp: '^#?\s*ENCRYPT_METHOD\s'
+    line: "ENCRYPT_METHOD\t{{ password_policy_encrypt_method }}"
+    state: present

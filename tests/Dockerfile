@@ -9,7 +9,8 @@ ENV container=docker
 # server has them, and site.yml's --check mode needs them to resolve packages.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-       systemd systemd-sysv openssh-server python3 python3-apt sudo ca-certificates cron
+       systemd systemd-sysv openssh-server python3 python3-apt sudo ca-certificates cron \
+       libpwquality-tools
 
 ARG PUBKEY
 RUN mkdir -p /root/.ssh \
