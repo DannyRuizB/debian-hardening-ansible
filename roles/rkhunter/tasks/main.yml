@@ -1,0 +1,62 @@
+---
+# Rootkit detection with rkhunter — mirrors step 17 of harden.sh in the
+# sibling Bash repo. AIDE (the aide role) answers "did any watched file
+# change?"; rkhunter answers "does this box show signs of a known rootkit,
+# backdoor or local exploit?" — signature and heuristic checks AIDE doesn't
+# do. Two detection layers, different questions.
+- name: Install rkhunter (no recommends — don't drag in a mail agent)
+  ansible.builtin.apt:
+    name: rkhunter
+    state: present
+    install_recommends: false
+
+# Use our own systemd timer, not Debian's cron.daily/rkhunter, so the check
+# runs once (from the timer); and stop the cron job auto-updating signatures
+# over the network — the timer runs offline against the shipped databases.
+- name: Run once from our timer, offline (not Debian's cron.daily)
+  ansible.builtin.lineinfile:
+    path: /etc/default/rkhunter
+    regexp: "^{{ item.key }}="
+    line: '{{ item.key }}="{{ item.value }}"'
+    state: present
+  loop:
+    - { key: CRON_DAILY_RUN, value: "false" }
+    - { key: CRON_DB_UPDATE, value: "false" }
+  # /etc/default/rkhunter ships with the package, which --check doesn't
+  # actually install, so the file isn't there to edit in check mode. A real
+  # run installs rkhunter (task above) first.
+  when: not ansible_check_mode
+
+- name: Check whether the property baseline exists
+  ansible.builtin.stat:
+    path: "{{ rkhunter_database }}"
+  register: rkhunter_db
+
+# Take the property baseline only when missing — re-running --propupd on
+# every play would "bless" tampering that happened since. (The package
+# postinst usually takes the first one; this covers the case it didn't.)
+- name: Take the rkhunter property baseline (first run)
+  ansible.builtin.command:
+    cmd: rkhunter --propupd --nocolors
+  when: not rkhunter_db.stat.exists
+  changed_when: true
+
+- name: Install the daily check service and timer
+  ansible.builtin.template:
+    src: "{{ item.src }}"
+    dest: "/etc/systemd/system/{{ item.dest }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - { src: rkhunter-check.service.j2, dest: rkhunter-check.service }
+    - { src: rkhunter-check.timer.j2, dest: rkhunter-check.timer }
+
+- name: Enable the daily rkhunter check timer
+  ansible.builtin.systemd_service:
+    name: rkhunter-check.timer
+    enabled: true
+    daemon_reload: true
+  # Same --check trap as the aide role: in check mode the timer unit above is
+  # not actually written, so enabling it would fail. A real run creates it first.
+  when: not ansible_check_mode
