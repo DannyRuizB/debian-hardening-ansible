@@ -24,3 +24,4 @@
     - cron_restrictions
     - password_policy
     - aide
+    - rkhunter

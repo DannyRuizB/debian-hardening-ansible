@@ -1,0 +1,5 @@
+---
+# rkhunter's property database — the baseline of binary properties the daily
+# check compares against. Not managed as a template (it's binary state built
+# by rkhunter itself), so it never enters the idempotence check.
+rkhunter_database: /var/lib/rkhunter/db/rkhunter.dat

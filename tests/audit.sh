@@ -273,6 +273,17 @@ on_node test -s /var/lib/aide/hardening.db \
   && P "Daily AIDE check timer enabled" \
   || W "no daily AIDE check timer" "enable aide-check.timer (aide role)"
 
+echo "-- Rootkit detection (rkhunter) -----------------------------"
+on_node test -x /usr/bin/rkhunter \
+  && P "rkhunter installed" \
+  || W "rkhunter not installed" "apt install rkhunter (rkhunter role)"
+on_node test -s /var/lib/rkhunter/db/rkhunter.dat \
+  && P "rkhunter property baseline present" \
+  || W "no rkhunter property baseline" "run rkhunter --propupd (rkhunter role)"
+[ "$(on_node systemctl is-enabled rkhunter-check.timer 2>/dev/null)" = enabled ] \
+  && P "Daily rkhunter check timer enabled" \
+  || W "no daily rkhunter check timer" "enable rkhunter-check.timer (rkhunter role)"
+
 echo "-- Accounts & files -----------------------------------------"
 on_node getent group sudo | grep -qE ':.*[a-z]' \
   && P "A non-root sudo account exists ($(on_node getent group sudo | sed 's/.*://'))" \
