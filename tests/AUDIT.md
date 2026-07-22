@@ -79,10 +79,14 @@ four more: `UMASK 027` in login.defs, the profile.d umask drop-in, a readonly
 `TMOUT` at or under 900 seconds, and its export. The `cron_restrictions` role
 added a **Cron restrictions (CIS 5.1)** section with four more: `/etc/crontab`
 600 root:root, the cron.* drop-in dirs uniformly 700, a root-only `cron.allow`
-(640) and the deny-list gone. Current score on a freshly hardened node:
+(640) and the deny-list gone. The `password_policy` role added a **Password
+policy (CIS 5.3/5.4)** section with four more: `pam_pwquality` wired into
+`common-password`, `minlen >= 14`, `enforce_for_root` (the policy binds root
+too), and `ENCRYPT_METHOD` pinned to a strong crypt (yescrypt or SHA-512).
+Current score on a freshly hardened node:
 
 ```
- Score: 61 PASS, 0 WARN, 0 FAIL  ->  100% compliant
+ Score: 65 PASS, 0 WARN, 0 FAIL  ->  100% compliant
 ```
 
 ## Honesty

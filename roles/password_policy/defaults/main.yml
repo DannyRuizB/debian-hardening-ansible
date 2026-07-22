@@ -1,0 +1,10 @@
+---
+# CIS 5.3.x suggests 14+ characters and all four character classes;
+# maxrepeat 3 blocks aaaa-style padding. retry 3 = attempts per passwd
+# invocation. YESCRYPT matches Debian's own PAM default (SHA512 also
+# passes the audit) — the pin is against silent downgrades, not a change.
+password_policy_minlen: 14
+password_policy_minclass: 4
+password_policy_maxrepeat: 3
+password_policy_retry: 3
+password_policy_encrypt_method: YESCRYPT

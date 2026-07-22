@@ -269,6 +269,34 @@ else
   pass "root is still allowed to use crontab"
 fi
 
+echo "== Password policy (CIS 5.3/5.4) =="
+expect_line "pwquality demands at least 14 characters" '^minlen = 14$' \
+  grep "'^minlen'" /etc/security/pwquality.conf
+expect_line "the policy binds root too (enforce_for_root)" '^enforce_for_root$' \
+  grep "'^enforce_for_root'" /etc/security/pwquality.conf
+expect_line "pam_pwquality is wired into common-password" 'pam_pwquality\.so' \
+  grep pam_pwquality /etc/pam.d/common-password
+# Behavioral, through the same library PAM consults (pwscore ships in the
+# test image): a weak password must be rejected with the policy's reason...
+weak_out=$(on_node bash -c '"echo changeme1 | pwscore"' 2>&1 || true)
+if printf '%s\n' "$weak_out" | grep -qiE 'shorter|characters|dictionary'; then
+  pass "a weak password is rejected by the quality library"
+else
+  fail "a weak password is rejected by the quality library (got: $(echo "$weak_out" | head -1))"
+fi
+# ...and a strong one (14+, all four classes) must score.
+expect_ok "a strong password clears the policy" \
+  bash -c '"echo Vk9#mQz2.pLw7#xTe | pwscore"'
+# The stored hash: set a password on a throwaway account and read the crypt
+# prefix — $y$ is yescrypt, whichever path (PAM or login.defs) produced it.
+on_node sudo useradd probe-hash 2>/dev/null || true
+on_node sudo bash -c '"echo probe-hash:Vk9#mQz2.pLw7#xTe | chpasswd"' >/dev/null 2>&1 || true
+expect_line "a freshly set password is stored as yescrypt" '^\$y\$' \
+  sudo bash -c "'getent shadow probe-hash | cut -d: -f2'"
+on_node sudo userdel probe-hash 2>/dev/null || true
+expect_line "login.defs pins ENCRYPT_METHOD to yescrypt" \
+  '^ENCRYPT_METHOD[[:space:]]+YESCRYPT$' grep -E "'^ENCRYPT_METHOD'" /etc/login.defs
+
 # LAST on purpose: banning the client cuts our own SSH access to the node.
 # Lift the shield installed at the top — from here on we WANT to be bannable.
 docker exec dh-test-node fail2ban-client set sshd delignoreip 172.17.0.1 >/dev/null 2>&1 || true
