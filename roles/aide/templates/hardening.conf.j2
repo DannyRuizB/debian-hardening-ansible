@@ -1,0 +1,18 @@
+{{ ansible_managed | comment }}
+database_in=file:{{ aide_database }}
+database_out=file:{{ aide_database }}.new
+gzip_dbout=no
+report_url=stdout
+
+# Rule: permissions, inode, ownership, size, mtime/ctime and strong hashes.
+Strong = p+i+n+u+g+s+m+c+sha256+sha512
+
+# What matters after a compromise: the system binaries and the config tree.
+{% for path in aide_watch_paths %}
+{{ path }} Strong
+{% endfor %}
+
+# Churn that is not tampering — exclude so the daily report stays signal.
+!/etc/mtab$
+!{{ aide_config }}$
+!/etc/.*\.cache$

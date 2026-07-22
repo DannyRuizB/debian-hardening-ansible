@@ -1,0 +1,13 @@
+---
+# Own config + DB path, scoped to what matters after a compromise: the
+# system binaries and the config tree. Strong = perms, inode, owner,
+# group, size, mtime/ctime and SHA-256+512.
+aide_config: /etc/aide/hardening.conf
+aide_database: /var/lib/aide/hardening.db
+aide_watch_paths:
+  - /etc
+  - /bin
+  - /sbin
+  - /usr/bin
+  - /usr/sbin
+  - /boot

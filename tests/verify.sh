@@ -297,6 +297,25 @@ on_node sudo userdel probe-hash 2>/dev/null || true
 expect_line "login.defs pins ENCRYPT_METHOD to yescrypt" \
   '^ENCRYPT_METHOD[[:space:]]+YESCRYPT$' grep -E "'^ENCRYPT_METHOD'" /etc/login.defs
 
+echo "== File integrity (AIDE, CIS 1.4) =="
+expect_ok "the AIDE config exists" sudo test -f /etc/aide/hardening.conf
+expect_ok "the AIDE baseline DB was built" sudo test -s /var/lib/aide/hardening.db
+expect_line "the config fingerprints /etc" '^/etc' \
+  sudo grep "'^/etc'" /etc/aide/hardening.conf
+expect_line "a daily check timer is enabled" '^enabled$' \
+  sudo systemctl is-enabled aide-check.timer
+# Behavioral, the whole point: drop a NEW file into a watched path (/etc)
+# and AIDE must report it as added on the next check. The baseline was
+# built during hardening without this file, so it is unambiguous drift.
+on_node "sudo sh -c 'echo pwn > /etc/aide-probe.conf'" >/dev/null 2>&1 || true
+aide_out=$(on_node "sudo aide --config=/etc/aide/hardening.conf --check 2>&1 || true")
+if printf '%s\n' "$aide_out" | grep -q "aide-probe.conf"; then
+  pass "a new file under /etc is caught by an AIDE check (tamper-evident)"
+else
+  fail "a new file under /etc is caught by an AIDE check (tamper-evident)"
+fi
+on_node "sudo rm -f /etc/aide-probe.conf" >/dev/null 2>&1 || true
+
 # LAST on purpose: banning the client cuts our own SSH access to the node.
 # Lift the shield installed at the top — from here on we WANT to be bannable.
 docker exec dh-test-node fail2ban-client set sshd delignoreip 172.17.0.1 >/dev/null 2>&1 || true
