@@ -1,0 +1,53 @@
+---
+# Kernel module blacklist — mirrors step 18 of harden.sh in the sibling Bash
+# repo. Rarely-used filesystems and network protocols are kernel code
+# reachable from userspace (a mount(2) or socket(2) away); the modprobe.d
+# drop-in makes them unloadable. Two directives per module, closing two
+# different doors: `install m /bin/false` defeats an EXPLICIT `modprobe m`
+# (modprobe runs /bin/false instead of loading anything), and `blacklist m`
+# stops the ALIAS auto-load path. One without the other leaves a door open.
+
+# modprobe reads modprobe.d, so the config is useless without kmod — any real
+# server has it, but a minimal container/chroot may not.
+- name: Install kmod (modprobe is what enforces the blacklist)
+  ansible.builtin.apt:
+    name: kmod
+    state: present
+    install_recommends: false
+
+- name: Ensure /etc/modprobe.d exists
+  ansible.builtin.file:
+    path: /etc/modprobe.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Make the blacklisted modules unloadable
+  ansible.builtin.template:
+    src: 99-hardening-blacklist.conf.j2
+    dest: "{{ module_blacklist_conf }}"
+    owner: root
+    group: root
+    mode: "0644"
+
+# The config only stops FUTURE loads; anything already resident stays until
+# unloaded. Best effort, mirroring the Bash twin: quietly tolerated where it
+# can't work (containers), and a reboot settles it on a real box either way.
+- name: Read the currently loaded modules
+  ansible.builtin.slurp:
+    src: /proc/modules
+  register: module_blacklist_proc
+
+- name: Unload any blacklisted module that is already resident (best effort)
+  ansible.builtin.command:
+    cmd: "modprobe -r {{ item }}"
+  loop: >-
+    {{ module_blacklist_modules
+       | select('in', module_blacklist_proc.content
+                      | b64decode | split('\n') | map('split', ' ')
+                      | map('first') | list)
+       | list }}
+  register: module_blacklist_unload
+  changed_when: module_blacklist_unload.rc == 0
+  failed_when: false

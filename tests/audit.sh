@@ -284,6 +284,26 @@ on_node test -s /var/lib/rkhunter/db/rkhunter.dat \
   && P "Daily rkhunter check timer enabled" \
   || W "no daily rkhunter check timer" "enable rkhunter-check.timer (rkhunter role)"
 
+echo "-- Kernel module blacklist ----------------------------------"
+on_node test -f /etc/modprobe.d/99-hardening-blacklist.conf \
+  && P "modprobe blacklist drop-in present" \
+  || W "no modprobe blacklist drop-in" "run the module_blacklist role (CIS 1.1.1/3.4)"
+fs_count=$(on_node grep -c '^install \(cramfs\|freevxfs\|jffs2\|hfs\|hfsplus\|udf\) /bin/false' /etc/modprobe.d/99-hardening-blacklist.conf || true)
+fs_count=${fs_count:-0}
+[ "$fs_count" = "6" ] \
+  && P "Rare filesystems unloadable (cramfs freevxfs jffs2 hfs hfsplus udf)" \
+  || W "rare filesystems still loadable ($fs_count/6 covered)" "install <fs> /bin/false in modprobe.d (CIS 1.1.1)"
+proto_count=$(on_node grep -c '^install \(dccp\|sctp\|rds\|tipc\) /bin/false' /etc/modprobe.d/99-hardening-blacklist.conf || true)
+proto_count=${proto_count:-0}
+[ "$proto_count" = "4" ] \
+  && P "Uncommon network protocols unloadable (dccp sctp rds tipc)" \
+  || W "uncommon protocols still loadable ($proto_count/4 covered)" "install <proto> /bin/false in modprobe.d (CIS 3.4)"
+# Dry run consults the config without touching the kernel: with the install
+# directive it prints `install /bin/false`; without it, it errors out.
+on_node modprobe -n -v dccp 2>/dev/null | grep -q 'install /bin/false' \
+  && P "modprobe honours the blacklist (dccp dry-run runs /bin/false)" \
+  || W "modprobe does not defeat dccp" "check the install directive (module_blacklist role)"
+
 echo "-- Accounts & files -----------------------------------------"
 on_node getent group sudo | grep -qE ':.*[a-z]' \
   && P "A non-root sudo account exists ($(on_node getent group sudo | sed 's/.*://'))" \

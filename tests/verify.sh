@@ -332,6 +332,23 @@ else
   fail "an rkhunter check runs to completion and reports"
 fi
 
+echo "== Kernel module blacklist =="
+expect_ok "the modprobe blacklist drop-in exists" \
+  sudo test -f /etc/modprobe.d/99-hardening-blacklist.conf
+# Behavioral, container-safe: `modprobe -n -v` (dry run) consults the config
+# without needing module-loading rights or /lib/modules for this kernel. With
+# the install directive in place it prints `install /bin/false` and exits 0;
+# without it, it FAILS (module unresolvable) — so this check genuinely flips
+# from red to green when the role runs.
+expect_line "an explicit dccp load is defeated (install /bin/false)" \
+  'install /bin/false' sudo modprobe -n -v dccp
+expect_line "an explicit cramfs mount helper is defeated too" \
+  'install /bin/false' sudo modprobe -n -v cramfs
+# The alias door: `blacklist` is what stops auto-loading; assert it is
+# declared for every module the role promises, not just the install line.
+expect_ok "every blacklisted module has its blacklist line (10/10)" \
+  "test \"\$(grep -c '^blacklist ' /etc/modprobe.d/99-hardening-blacklist.conf)\" -eq 10"
+
 # LAST on purpose: banning the client cuts our own SSH access to the node.
 # Lift the shield installed at the top — from here on we WANT to be bannable.
 docker exec dh-test-node fail2ban-client set sshd delignoreip 172.17.0.1 >/dev/null 2>&1 || true

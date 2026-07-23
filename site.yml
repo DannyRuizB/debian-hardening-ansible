@@ -25,3 +25,4 @@
     - password_policy
     - aide
     - rkhunter
+    - module_blacklist
