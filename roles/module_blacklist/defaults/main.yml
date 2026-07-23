@@ -1,0 +1,20 @@
+---
+# CIS 1.1.1 (filesystems nobody mounts on a server) + CIS 3.4 (network
+# protocols nobody speaks): each is kernel code reachable from userspace —
+# a mount(2) or socket(2) away — and several have carried privilege-
+# escalation CVEs. usb-storage is deliberately NOT here (CIS lists it as
+# site-dependent, and it bites the restore-from-USB path on real boxes);
+# squashfs/overlayfs stay untouched too (snaps and container runtimes).
+module_blacklist_modules:
+  - cramfs
+  - freevxfs
+  - jffs2
+  - hfs
+  - hfsplus
+  - udf
+  - dccp
+  - sctp
+  - rds
+  - tipc
+
+module_blacklist_conf: /etc/modprobe.d/99-hardening-blacklist.conf
