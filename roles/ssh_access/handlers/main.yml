@@ -1,0 +1,7 @@
+---
+# Distinct name from the other roles' reload handlers: handler names are
+# global to the play, so two roles notifying the same name is ambiguous.
+- name: Reload ssh for access control
+  ansible.builtin.systemd:
+    name: ssh
+    state: reloaded
