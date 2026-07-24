@@ -1,0 +1,9 @@
+---
+# daemon-reload picks up the drop-in, then restart fail2ban under the new
+# confinement. Distinct name from fail2ban's own restart handler (handler
+# names are global to the play).
+- name: Restart fail2ban under the sandbox
+  ansible.builtin.systemd:
+    name: fail2ban
+    state: restarted
+    daemon_reload: true
