@@ -1,0 +1,9 @@
+---
+# CIS 5.3.2: lock the ACCOUNT after this many failed password attempts…
+faillock_deny: 5
+# …for this many seconds (15 minutes; a real brute force retries far past
+# that, a fat-fingered human just waits it out — or an admin runs
+# `faillock --user <u> --reset`).
+faillock_unlock_time: 900
+
+faillock_conf: /etc/security/faillock.conf

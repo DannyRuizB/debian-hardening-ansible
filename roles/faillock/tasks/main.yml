@@ -1,0 +1,70 @@
+---
+# Account lockout with pam_faillock — mirrors step 19 of harden.sh in the
+# sibling Bash repo: CIS 5.3.2. The password_policy role makes each guess
+# expensive and fail2ban blocks the SSH *source*; this closes the third
+# face: lock the ACCOUNT itself after failed password attempts, so brute
+# force over any PAM path — su, console login, keyboard-interactive SSH —
+# hits a wall, not just network scanners.
+#
+# Crucially, key-only SSH never touches the PAM *auth* stack, so the admin
+# user this playbook creates (locked password, key login) can never be
+# locked out by this — the lockout only bites password authentication.
+# pam_faillock ships in libpam-modules and pam-auth-update in libpam-runtime,
+# both part of any Debian install: nothing to apt here.
+
+# faillock.conf is the single source of truth for the tunables (both PAM
+# lines read it), so pam_faillock.so needs no inline arguments — which is
+# also what keeps pam-auth-update's generated common-auth deterministic.
+- name: Write faillock.conf (deny, unlock_time, audit)
+  ansible.builtin.template:
+    src: faillock.conf.j2
+    dest: "{{ faillock_conf }}"
+    owner: root
+    group: root
+    mode: "0644"
+  register: faillock_conf_file
+
+# Debian wires PAM modules through pam-auth-update profiles, not by hand-
+# editing common-auth (which the tool would clobber). Two profiles: the
+# high-priority `preauth` gate that refuses a locked account before the
+# password prompt, and the low-priority `authfail` tally that records a
+# failure and dies. Priorities put preauth above pam_unix and authfail
+# below it — the ordering pam_faillock requires.
+- name: Install the pam-auth-update profiles (preauth gate + authfail tally)
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "/usr/share/pam-configs/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - hardening-faillock
+    - hardening-faillock-authfail
+  register: faillock_profiles
+
+# Read-only probe so the enable step below runs only when something is
+# actually missing — that's what keeps the second pass at changed=0.
+- name: Check whether pam_faillock is already wired into common-auth
+  ansible.builtin.command:
+    cmd: grep -q pam_faillock /etc/pam.d/common-auth
+  register: faillock_wired
+  changed_when: false
+  failed_when: faillock_wired.rc not in [0, 1]
+  check_mode: false
+
+- name: Wire the profiles into common-auth (pam-auth-update)
+  ansible.builtin.command:
+    cmd: >-
+      pam-auth-update --package
+      --enable hardening-faillock --enable hardening-faillock-authfail
+  environment:
+    DEBIAN_FRONTEND: noninteractive
+  # In --check the profiles above are not actually written, so enabling
+  # them would wire nothing (or fail) — the same dry-run trap as the aide
+  # and rkhunter units. A real run always has them in place first.
+  when:
+    - not ansible_check_mode
+    - faillock_conf_file is changed
+      or faillock_profiles is changed
+      or faillock_wired.rc != 0
+  changed_when: true

@@ -304,6 +304,17 @@ on_node modprobe -n -v dccp 2>/dev/null | grep -q 'install /bin/false' \
   && P "modprobe honours the blacklist (dccp dry-run runs /bin/false)" \
   || W "modprobe does not defeat dccp" "check the install directive (module_blacklist role)"
 
+echo "-- Account lockout (pam_faillock) ---------------------------"
+on_node grep -qE '^deny[[:space:]]*=[[:space:]]*[1-5]$' /etc/security/faillock.conf \
+  && P "faillock locks after <= 5 failed attempts" \
+  || W "no faillock deny threshold <= 5" "set deny = 5 in /etc/security/faillock.conf (faillock role)"
+on_node grep -qE '^unlock_time[[:space:]]*=[[:space:]]*[0-9]+' /etc/security/faillock.conf \
+  && P "faillock sets an unlock_time ($(on_node grep '^unlock_time' /etc/security/faillock.conf | tr -d ' '))" \
+  || W "no faillock unlock_time" "set unlock_time = 900 (faillock role)"
+on_node grep -q 'pam_faillock.so preauth' /etc/pam.d/common-auth \
+  && P "pam_faillock preauth gate wired into common-auth" \
+  || W "pam_faillock not active in common-auth" "run the faillock role (pam-auth-update profiles)"
+
 echo "-- Accounts & files -----------------------------------------"
 on_node getent group sudo | grep -qE ':.*[a-z]' \
   && P "A non-root sudo account exists ($(on_node getent group sudo | sed 's/.*://'))" \

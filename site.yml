@@ -26,3 +26,4 @@
     - aide
     - rkhunter
     - module_blacklist
+    - faillock
