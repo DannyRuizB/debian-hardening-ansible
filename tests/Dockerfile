@@ -7,10 +7,12 @@ ENV container=docker
 
 # The apt lists are kept on purpose (no rm -rf /var/lib/apt/lists): a real
 # server has them, and site.yml's --check mode needs them to resolve packages.
+# pamtester drives the real PAM login stack for the faillock lockout check —
+# piping a password into su never works (PAM flushes pending tty input).
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
        systemd systemd-sysv openssh-server python3 python3-apt sudo ca-certificates cron \
-       libpwquality-tools
+       libpwquality-tools pamtester
 
 ARG PUBKEY
 RUN mkdir -p /root/.ssh \

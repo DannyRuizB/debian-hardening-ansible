@@ -349,6 +349,57 @@ expect_line "an explicit cramfs mount helper is defeated too" \
 expect_ok "every blacklisted module has its blacklist line (10/10)" \
   "test \"\$(grep -c '^blacklist ' /etc/modprobe.d/99-hardening-blacklist.conf)\" -eq 10"
 
+echo "== Account lockout (pam_faillock) =="
+expect_line "faillock.conf sets deny = 5" '^deny[[:space:]]*=[[:space:]]*5$' \
+  sudo grep '^deny' /etc/security/faillock.conf
+expect_line "faillock.conf sets a 15-minute unlock_time" '^unlock_time[[:space:]]*=[[:space:]]*900$' \
+  sudo grep '^unlock_time' /etc/security/faillock.conf
+expect_line "the preauth gate is wired into common-auth" 'pam_faillock\.so preauth' \
+  sudo grep pam_faillock /etc/pam.d/common-auth
+expect_line "the authfail tally is wired into common-auth" 'pam_faillock\.so authfail' \
+  sudo grep pam_faillock /etc/pam.d/common-auth
+# Behavioral: create a throwaway password account and drive the REAL PAM
+# `login` stack with pamtester(1). Two traps shape this harness:
+#  - su(1) is useless under sudo: pam_rootok waves root through without
+#    running the auth stack, so nothing ever tallies.
+#  - piping a password into su via script(1) never arrives: PAM flushes
+#    pending tty input (TCSAFLUSH) before reading. pamtester reads the
+#    password from stdin — no pty involved.
+# The baseline attempt proves the password actually reaches PAM, so a lock
+# "success" can't hide a broken harness. faillock records live under
+# /run/faillock and SURVIVE userdel — reset right after creating the account
+# or a verify re-run starts already locked. These attempts never touch sshd,
+# so they don't feed Fail2Ban (its section runs last, on purpose).
+on_node "sudo userdel -r faillock-probe 2>/dev/null; sudo useradd -m faillock-probe && echo 'faillock-probe:C0rrectHorse!x9' | sudo chpasswd && sudo faillock --user faillock-probe --reset" >/dev/null 2>&1 || true
+probe_auth() {  # one real authentication attempt with the given password
+  on_node "printf '%s\n' '$1' | sudo pamtester login faillock-probe authenticate"
+}
+if probe_auth 'C0rrectHorse!x9' >/dev/null 2>&1; then
+  pass "baseline: the probe account's correct password authenticates"
+else
+  fail "baseline: the probe account's correct password authenticates"
+fi
+for _ in 1 2 3 4 5; do probe_auth 'wrongpass' >/dev/null 2>&1 || true; done
+if on_node "sudo faillock --user faillock-probe | grep -cE '^20[0-9][0-9]-'" 2>/dev/null | grep -qE '^[5-9]|^[0-9]{2,}'; then
+  pass "five failed logins are tallied in faillock"
+else
+  fail "five failed logins are tallied in faillock"
+fi
+# The right password must be refused while locked (the whole point).
+if probe_auth 'C0rrectHorse!x9' >/dev/null 2>&1; then
+  fail "a locked account rejects even the correct password"
+else
+  pass "a locked account rejects even the correct password"
+fi
+# A reset frees it: the correct password works again.
+on_node "sudo faillock --user faillock-probe --reset" >/dev/null 2>&1 || true
+if probe_auth 'C0rrectHorse!x9' >/dev/null 2>&1; then
+  pass "faillock --reset unlocks the account"
+else
+  fail "faillock --reset unlocks the account"
+fi
+on_node "sudo userdel -r faillock-probe" >/dev/null 2>&1 || true
+
 # LAST on purpose: banning the client cuts our own SSH access to the node.
 # Lift the shield installed at the top — from here on we WANT to be bannable.
 docker exec dh-test-node fail2ban-client set sshd delignoreip 172.17.0.1 >/dev/null 2>&1 || true

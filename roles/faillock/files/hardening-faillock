@@ -1,0 +1,9 @@
+Name: Account lockout — refuse locked accounts (debian-hardening, preauth)
+Default: yes
+Priority: 1024
+Auth-Type: Primary
+Auth:
+	requisite			pam_faillock.so preauth
+Account-Type: Additional
+Account:
+	required			pam_faillock.so
