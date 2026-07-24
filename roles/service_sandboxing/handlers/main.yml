@@ -7,3 +7,8 @@
     name: fail2ban
     state: restarted
     daemon_reload: true
+  # In --check the drop-in isn't really written and fail2ban isn't installed,
+  # so daemon_reload+restart fails with "Could not find the requested service"
+  # — the same dry-run trap the aide/rkhunter units dodge. A real run has the
+  # service in place first.
+  when: not ansible_check_mode
