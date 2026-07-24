@@ -400,6 +400,25 @@ else
 fi
 on_node "sudo userdel -r faillock-probe" >/dev/null 2>&1 || true
 
+echo "== File permissions (CIS 6.1) =="
+expect_line "/etc/passwd is 644 root:root" '^644 root root$' \
+  "stat -c '%a %U %G' /etc/passwd"
+expect_line "/etc/shadow is 640 root:shadow" '^640 root shadow$' \
+  "sudo stat -c '%a %U %G' /etc/shadow"
+expect_line "/etc/gshadow is 640 root:shadow" '^640 root shadow$' \
+  "sudo stat -c '%a %U %G' /etc/gshadow"
+expect_line "the shadow BACKUP (/etc/shadow-) got the same treatment" '^640 root shadow$' \
+  "sudo stat -c '%a %U %G' /etc/shadow-"
+# The CI plants a world-writable file, an orphan (UID 12345) and a 777 dir
+# BEFORE the first pass — so these three sweeps genuinely flip from red to
+# green when the role runs, instead of asserting a vacuum.
+expect_ok "no world-writable files outside the scratch dirs" \
+  "test -z \"\$(sudo find / -xdev \\( -path /tmp -o -path /var/tmp \\) -prune -o -type f -perm -0002 -print 2>/dev/null)\""
+expect_ok "no unowned or ungrouped files" \
+  "test -z \"\$(sudo find / -xdev \\( -path /tmp -o -path /var/tmp \\) -prune -o \\( -nouser -o -nogroup \\) -print 2>/dev/null)\""
+expect_ok "every world-writable directory carries the sticky bit" \
+  "test -z \"\$(sudo find / -xdev -type d -perm -0002 ! -perm -1000 -print 2>/dev/null)\""
+
 # LAST on purpose: banning the client cuts our own SSH access to the node.
 # Lift the shield installed at the top — from here on we WANT to be bannable.
 docker exec dh-test-node fail2ban-client set sshd delignoreip 172.17.0.1 >/dev/null 2>&1 || true
