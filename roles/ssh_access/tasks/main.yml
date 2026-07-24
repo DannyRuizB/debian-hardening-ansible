@@ -1,0 +1,46 @@
+---
+# SSH access control — mirrors step 21 of harden.sh in the sibling Bash
+# repo: CIS 5.2. ssh_hardening decides HOW you authenticate; this role
+# limits WHO may even try: `AllowGroups ssh-users` makes sshd reject anyone
+# not in that group before the auth stack runs — a service account or a
+# stale login can't be brute-forced over SSH if it can't reach SSH at all.
+#
+# THE lockout guard: an AllowGroups no live account satisfies locks everyone
+# out. So the whole role is gated on there being an admin user we can anchor
+# to, and the order is strict — group, then admin IN the group, then the
+# directive. A failed `user` task aborts the play before the drop-in is ever
+# written (Ansible tasks are sequential), so we can't end up with AllowGroups
+# live and no member.
+- name: Limit SSH login to a dedicated group (CIS 5.2)
+  when: admin_user_name | length > 0
+  block:
+    - name: Ensure the ssh-users group exists
+      ansible.builtin.group:
+        name: "{{ ssh_access_group }}"
+        state: present
+
+    - name: Add the admin user to ssh-users (before writing AllowGroups)
+      ansible.builtin.user:
+        name: "{{ admin_user_name }}"
+        groups: "{{ ssh_access_group }}"
+        append: true
+
+    - name: Restrict SSH login to the ssh-users group
+      ansible.builtin.copy:
+        content: |
+          # Managed by Ansible (ssh_access role). Edit the role, not this file.
+          # Only members of {{ ssh_access_group }} may log in over SSH (CIS 5.2).
+          AllowGroups {{ ssh_access_group }}
+        dest: /etc/ssh/sshd_config.d/96-hardening-access.conf
+        owner: root
+        group: root
+        mode: "0644"
+        validate: "sshd -t -f %s"
+      notify: Reload ssh for access control
+
+- name: Warn when SSH access control is skipped (no admin user to anchor to)
+  ansible.builtin.debug:
+    msg: >-
+      No admin_user_name set — skipping SSH access control. An AllowGroups
+      with no allowed member would lock everyone out.
+  when: admin_user_name | length == 0

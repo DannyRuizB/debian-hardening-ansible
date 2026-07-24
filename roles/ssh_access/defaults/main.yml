@@ -1,0 +1,4 @@
+---
+# CIS 5.2: only members of this group may log in over SSH. The admin user
+# is added to it before the AllowGroups directive is written.
+ssh_access_group: ssh-users

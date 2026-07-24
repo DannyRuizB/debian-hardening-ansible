@@ -419,6 +419,30 @@ expect_ok "no unowned or ungrouped files" \
 expect_ok "every world-writable directory carries the sticky bit" \
   "test -z \"\$(sudo find / -xdev -type d -perm -0002 ! -perm -1000 -print 2>/dev/null)\""
 
+echo "== SSH access control (AllowGroups) =="
+expect_line "sshd effective config limits AllowGroups to ssh-users" \
+  "^allowgroups ssh-users$" sudo sshd -T
+expect_line "the admin user is a member of ssh-users" '(^| )ssh-users( |$)' \
+  id -nG opsadmin
+# Behavioral: a user with a VALID key but NOT in ssh-users must be refused by
+# sshd before auth. We own both ends: make the probe on the node, hand it the
+# CI key, and try to log in as it. Then add it to ssh-users, reload, and prove
+# it gets in with the SAME key — so the gate is group membership, not the
+# credential. Runs inside the fail2ban shield (refusals would feed the jail).
+on_node "sudo userdel -r sshprobe 2>/dev/null; sudo useradd -m -s /bin/bash sshprobe && sudo install -d -m 700 -o sshprobe -g sshprobe /home/sshprobe/.ssh && sudo cp /home/opsadmin/.ssh/authorized_keys /home/sshprobe/.ssh/authorized_keys && sudo chown sshprobe:sshprobe /home/sshprobe/.ssh/authorized_keys" >/dev/null 2>&1 || true
+if ssh "${OPTS[@]}" -i "$KEY" sshprobe@127.0.0.1 true >/dev/null 2>&1; then
+  fail "a keyed user outside ssh-users is refused by AllowGroups"
+else
+  pass "a keyed user outside ssh-users is refused by AllowGroups"
+fi
+on_node "sudo usermod -aG ssh-users sshprobe && sudo systemctl reload ssh" >/dev/null 2>&1 || true
+if ssh "${OPTS[@]}" -i "$KEY" sshprobe@127.0.0.1 true >/dev/null 2>&1; then
+  pass "adding the user to ssh-users lets the same key in"
+else
+  fail "adding the user to ssh-users lets the same key in"
+fi
+on_node "sudo userdel -r sshprobe 2>/dev/null; sudo systemctl reload ssh" >/dev/null 2>&1 || true
+
 # LAST on purpose: banning the client cuts our own SSH access to the node.
 # Lift the shield installed at the top — from here on we WANT to be bannable.
 docker exec dh-test-node fail2ban-client set sshd delignoreip 172.17.0.1 >/dev/null 2>&1 || true

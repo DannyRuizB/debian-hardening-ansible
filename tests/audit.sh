@@ -331,6 +331,11 @@ orphan_count=$(on_node bash -c 'find / -xdev \( -path /tmp -o -path /var/tmp \) 
   && P "No unowned or ungrouped files" \
   || W "orphan files present ($orphan_count)" "chown root:root them (file_permissions role)"
 
+echo "-- SSH access control (CIS 5.2) -----------------------------"
+on_node sshd -T 2>/dev/null | grep -qi '^allowgroups ' \
+  && P "sshd restricts login to an AllowGroups list ($(on_node sshd -T 2>/dev/null | grep -i '^allowgroups ' | awk '{print $2}'))" \
+  || W "sshd has no AllowGroups restriction" "limit SSH login to a group (ssh_access role)"
+
 echo "-- Accounts & files -----------------------------------------"
 on_node getent group sudo | grep -qE ':.*[a-z]' \
   && P "A non-root sudo account exists ($(on_node getent group sudo | sed 's/.*://'))" \
