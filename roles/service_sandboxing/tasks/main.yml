@@ -1,0 +1,40 @@
+---
+# systemd service sandboxing — mirrors step 22 of harden.sh in the sibling
+# Bash repo. A hardening drop-in for the fail2ban unit: a network daemon that
+# shells out to ufw is a juicy foothold if exploited, and systemd can box it
+# in for free — no new privileges, a private /tmp, most of the filesystem
+# read-only, kernel tunables and cgroups protected.
+#
+# Conservative on purpose: fail2ban still needs the network and to run ufw,
+# so no PrivateNetwork / ProtectSystem=strict / kernel-module lockout that
+# would break it. ProtectSystem=full makes /etc read-only, but the ufw
+# banaction must write /etc/ufw/*.rules to install a ban — ReadWritePaths
+# carves that back out (leading `-` so the unit still starts if ufw was
+# skipped and the path is absent). The e2e's fail2ban ban test is the proof
+# the sandbox doesn't break banning.
+- name: Ensure the fail2ban drop-in directory exists
+  ansible.builtin.file:
+    path: /etc/systemd/system/fail2ban.service.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Sandbox the fail2ban service (systemd drop-in)
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/fail2ban.service.d/99-hardening.conf
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # Managed by Ansible (service_sandboxing role). Edit the role, not this file.
+      [Service]
+      NoNewPrivileges=true
+      PrivateTmp=true
+      ProtectHome=true
+      ProtectSystem=full
+      ProtectKernelTunables=true
+      ProtectControlGroups=true
+      RestrictSUIDSGID=true
+      ReadWritePaths=-/etc/ufw
+  notify: Restart fail2ban under the sandbox

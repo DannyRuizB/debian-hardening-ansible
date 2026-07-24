@@ -443,6 +443,22 @@ else
 fi
 on_node "sudo userdel -r sshprobe 2>/dev/null; sudo systemctl reload ssh" >/dev/null 2>&1 || true
 
+echo "== Service sandboxing (systemd) =="
+# Ask systemd for the EFFECTIVE properties of the running fail2ban unit — the
+# drop-in is only real if the manager actually applied it.
+expect_line "fail2ban runs with NoNewPrivileges" "^NoNewPrivileges=yes$" \
+  sudo systemctl show fail2ban -p NoNewPrivileges
+expect_line "fail2ban has a private /tmp" "^PrivateTmp=yes$" \
+  sudo systemctl show fail2ban -p PrivateTmp
+expect_line "fail2ban has ProtectSystem=full" "^ProtectSystem=full$" \
+  sudo systemctl show fail2ban -p ProtectSystem
+expect_line "fail2ban has ProtectHome" "^ProtectHome=yes$" \
+  sudo systemctl show fail2ban -p ProtectHome
+# Sandboxed AND still working — if the confinement had broken it the unit
+# wouldn't be active, and the ban test below would fail anyway.
+expect_line "fail2ban is still active under the sandbox" "^active$" \
+  sudo systemctl is-active fail2ban
+
 # LAST on purpose: banning the client cuts our own SSH access to the node.
 # Lift the shield installed at the top — from here on we WANT to be bannable.
 docker exec dh-test-node fail2ban-client set sshd delignoreip 172.17.0.1 >/dev/null 2>&1 || true

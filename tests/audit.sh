@@ -336,6 +336,14 @@ on_node sshd -T 2>/dev/null | grep -qi '^allowgroups ' \
   && P "sshd restricts login to an AllowGroups list ($(on_node sshd -T 2>/dev/null | grep -i '^allowgroups ' | awk '{print $2}'))" \
   || W "sshd has no AllowGroups restriction" "limit SSH login to a group (ssh_access role)"
 
+echo "-- Service sandboxing (systemd) -----------------------------"
+on_node systemctl show fail2ban -p NoNewPrivileges 2>/dev/null | grep -q '^NoNewPrivileges=yes$' \
+  && P "fail2ban runs with NoNewPrivileges" \
+  || W "fail2ban has no NoNewPrivileges" "add a systemd sandboxing drop-in (service_sandboxing role)"
+on_node systemctl show fail2ban -p ProtectSystem 2>/dev/null | grep -qE '^ProtectSystem=(full|strict)$' \
+  && P "fail2ban has ProtectSystem ($(on_node systemctl show fail2ban -p ProtectSystem 2>/dev/null | cut -d= -f2))" \
+  || W "fail2ban filesystem not protected" "set ProtectSystem=full (service_sandboxing role)"
+
 echo "-- Accounts & files -----------------------------------------"
 on_node getent group sudo | grep -qE ':.*[a-z]' \
   && P "A non-root sudo account exists ($(on_node getent group sudo | sed 's/.*://'))" \
