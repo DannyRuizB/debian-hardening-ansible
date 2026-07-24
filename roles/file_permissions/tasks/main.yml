@@ -1,0 +1,102 @@
+---
+# File permission hardening — mirrors step 20 of harden.sh in the sibling
+# Bash repo: CIS 6.1. Exact modes on the account database, then three
+# sweeps over the root filesystem: clear the world-writable bit on files,
+# adopt orphan (unowned/ungrouped) files as root, and add the sticky bit
+# to world-writable directories. SUID/SGID binaries are inventoried but
+# never stripped — site-dependent per CIS, and blindly removing bits
+# breaks sudo/passwd/ping.
+#
+# The find probes are read-only and run even in --check (check_mode:
+# false); every remediation loops over a probe's results, so on a clean
+# second pass the loops are empty and the play stays at changed=0.
+
+# The '-' backups only exist once the shadow suite has written them —
+# stat first so a fresh box doesn't fail on a missing backup.
+- name: Check which account-database files exist
+  ansible.builtin.stat:
+    path: "{{ item.path }}"
+  loop: "{{ file_permissions_account_db }}"
+  loop_control:
+    label: "{{ item.path }}"
+  register: file_permissions_db_stat
+
+- name: Pin owner, group and mode on the account database (CIS 6.1.2-6.1.8)
+  ansible.builtin.file:
+    path: "{{ item.item.path }}"
+    owner: "{{ item.item.owner }}"
+    group: "{{ item.item.group }}"
+    mode: "{{ item.item.mode }}"
+  loop: "{{ file_permissions_db_stat.results }}"
+  loop_control:
+    label: "{{ item.item.path }}"
+  when: item.stat.exists
+
+# -xdev keeps the sweep on the root filesystem (skips /proc, /sys and other
+# mounts on its own). Any local user can rewrite a world-writable file — a
+# config, a script some cron runs as root...
+- name: Find world-writable files (CIS 6.1.9)
+  ansible.builtin.shell:
+    cmd: >-
+      find / -xdev \( {{ file_permissions_sweep_prune }} \) -prune
+      -o -type f -perm -0002 -print 2>/dev/null || true
+  register: file_permissions_ww_files
+  changed_when: false
+  check_mode: false
+
+- name: Clear the world-writable bit on them
+  ansible.builtin.file:
+    path: "{{ item }}"
+    mode: o-w
+  loop: "{{ file_permissions_ww_files.stdout_lines }}"
+
+# A deleted account leaves its files behind, and the next account created
+# with the recycled UID silently inherits them. Adopting them as root:root
+# closes that door.
+- name: Find unowned or ungrouped files (CIS 6.1.10/11)
+  ansible.builtin.shell:
+    cmd: >-
+      find / -xdev \( {{ file_permissions_sweep_prune }} \) -prune
+      -o \( -nouser -o -nogroup \) -print 2>/dev/null || true
+  register: file_permissions_orphans
+  changed_when: false
+  check_mode: false
+
+- name: Adopt them as root:root
+  ansible.builtin.file:
+    path: "{{ item }}"
+    owner: root
+    group: root
+  loop: "{{ file_permissions_orphans.stdout_lines }}"
+
+# A world-writable directory without the sticky bit lets any user delete
+# or replace anyone else's files in it (the bit is why /tmp works at all).
+# Adding +t is always safe; removing o+w might not be.
+- name: Find world-writable directories without the sticky bit
+  ansible.builtin.shell:
+    cmd: >-
+      find / -xdev -type d -perm -0002 ! -perm -1000 -print 2>/dev/null || true
+  register: file_permissions_ww_dirs
+  changed_when: false
+  check_mode: false
+
+- name: Add the sticky bit to them
+  ansible.builtin.file:
+    path: "{{ item }}"
+    mode: +t
+  loop: "{{ file_permissions_ww_dirs.stdout_lines }}"
+
+# CIS 6.1.13/14: surfaced for review, never auto-removed.
+- name: List SUID/SGID binaries (inventory only)
+  ansible.builtin.shell:
+    cmd: >-
+      find / -xdev -type f \( -perm -4000 -o -perm -2000 \) -print 2>/dev/null || true
+  register: file_permissions_suid
+  changed_when: false
+  check_mode: false
+
+- name: Report the SUID/SGID inventory
+  ansible.builtin.debug:
+    msg: >-
+      SUID/SGID binaries present: {{ file_permissions_suid.stdout_lines | length }}
+      (review with: find / -xdev -type f -perm -4000 -o -perm -2000)

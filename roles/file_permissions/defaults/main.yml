@@ -1,0 +1,18 @@
+---
+# CIS 6.1.2-6.1.8: the account database, with exact owner/group/mode.
+# passwd/group are world-readable by design; shadow/gshadow hold the hashes
+# (group `shadow` only). The '-' files are the shadow suite's one-step
+# backups — same secrets, same modes, and routinely forgotten.
+file_permissions_account_db:
+  - { path: /etc/passwd, owner: root, group: root, mode: "0644" }
+  - { path: /etc/passwd-, owner: root, group: root, mode: "0644" }
+  - { path: /etc/group, owner: root, group: root, mode: "0644" }
+  - { path: /etc/group-, owner: root, group: root, mode: "0644" }
+  - { path: /etc/shadow, owner: root, group: shadow, mode: "0640" }
+  - { path: /etc/shadow-, owner: root, group: shadow, mode: "0640" }
+  - { path: /etc/gshadow, owner: root, group: shadow, mode: "0640" }
+  - { path: /etc/gshadow-, owner: root, group: shadow, mode: "0640" }
+
+# Scratch dirs excluded from the file sweeps on purpose: transient by
+# design and already guarded by the sticky bit on the directory itself.
+file_permissions_sweep_prune: "-path /tmp -o -path /var/tmp"

@@ -27,3 +27,4 @@
     - rkhunter
     - module_blacklist
     - faillock
+    - file_permissions

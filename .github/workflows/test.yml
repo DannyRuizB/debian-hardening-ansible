@@ -32,6 +32,18 @@ jobs:
       - name: Boot the test node
         run: ./tests/node.sh up && ./tests/node.sh wait
 
+      # CIS 6.1 offenders planted BEFORE any pass (including --check, whose
+      # read-only find probes see them): a world-writable file, an orphan
+      # owned by a UID that doesn't exist, and a 777 dir without the sticky
+      # bit. The file_permissions role must fix all three — verify's sweep
+      # checks flip from red to green because of these, not by vacuum.
+      - name: Plant file-permission offenders for the play to fix
+        run: |
+          docker exec dh-test-node bash -c "
+            install -d -m 777 /usr/local/share/dh-ww-dir &&
+            touch /usr/local/share/dh-ww-file && chmod 666 /usr/local/share/dh-ww-file &&
+            touch /usr/local/share/dh-orphan && chown 12345:12345 /usr/local/share/dh-orphan"
+
       # The CI key doubles as the admin user's key. Written as a vars file
       # because -e key=value can't carry the spaces of an OpenSSH public key.
       - name: Prepare the admin user's public key as a vars file
