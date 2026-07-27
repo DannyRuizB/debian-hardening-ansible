@@ -30,3 +30,4 @@
     - file_permissions
     - ssh_access
     - service_sandboxing
+    - journald

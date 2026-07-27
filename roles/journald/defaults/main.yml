@@ -1,0 +1,4 @@
+---
+# Cap on the persistent journal's disk footprint (SystemMaxUse). 200M keeps
+# months of compressed logs on a small server without ever filling the disk.
+journald_system_max_use: "200M"

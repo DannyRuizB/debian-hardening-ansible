@@ -1,0 +1,9 @@
+---
+# No check-mode guard here, unlike the aide/rkhunter/fail2ban handlers:
+# systemd-journald ships with systemd itself, so the unit exists even on a
+# fresh node that --check never installed anything on. No daemon_reload
+# either — journald.conf.d drop-ins are unit *configuration*, not unit files.
+- name: Restart systemd-journald
+  ansible.builtin.systemd:
+    name: systemd-journald
+    state: restarted

@@ -344,6 +344,14 @@ on_node systemctl show fail2ban -p ProtectSystem 2>/dev/null | grep -qE '^Protec
   && P "fail2ban has ProtectSystem ($(on_node systemctl show fail2ban -p ProtectSystem 2>/dev/null | cut -d= -f2))" \
   || W "fail2ban filesystem not protected" "set ProtectSystem=full (service_sandboxing role)"
 
+echo "-- Journald persistence (CIS 4.2.2) -------------------------"
+on_node bash -c "systemd-analyze cat-config systemd/journald.conf 2>/dev/null | grep -qE '^Storage=persistent'" \
+  && P "journald storage is persistent" \
+  || W "journald logs are volatile" "set Storage=persistent (journald role)"
+on_node test -d /var/log/journal \
+  && P "the persistent journal directory exists" \
+  || W "no /var/log/journal" "create it / set Storage=persistent (journald role)"
+
 echo "-- Accounts & files -----------------------------------------"
 on_node getent group sudo | grep -qE ':.*[a-z]' \
   && P "A non-root sudo account exists ($(on_node getent group sudo | sed 's/.*://'))" \
