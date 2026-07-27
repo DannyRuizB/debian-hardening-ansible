@@ -1,0 +1,5 @@
+---
+# Group whose members may run `su`. Created EMPTY on purpose (as CIS
+# suggests): sudo is the sanctioned path, so every member is a deliberate,
+# auditable exception. Add users outside this role if you truly need one.
+su_restriction_group: sugroup
