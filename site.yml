@@ -31,3 +31,4 @@
     - ssh_access
     - service_sandboxing
     - journald
+    - su_restriction

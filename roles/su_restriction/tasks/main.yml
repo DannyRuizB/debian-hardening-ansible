@@ -1,0 +1,47 @@
+---
+# su restriction — mirrors step 24 of harden.sh in the sibling Bash repo
+# (CIS 5.7). `su` hands out a whole root shell against a shared password;
+# sudo logs every command and is revocable per user. pam_wheel makes group
+# membership the gate BEFORE the password is even considered, so a stolen
+# root password alone no longer buys a shell. Root keeps its own su —
+# pam_rootok sits above the check in Debian's stack.
+- name: Ensure the su group exists
+  ansible.builtin.group:
+    name: "{{ su_restriction_group }}"
+    system: true
+    state: present
+
+# ONE desired-state task, not a probe plus two branches: the regexp matches
+# the pam_wheel line whether it is still Debian's commented hint or already
+# active, so the first run activates it and every later run rewrites the same
+# text (changed=0). The first attempt here used a grep probe to pick between
+# `replace` (hint present) and `lineinfile` (hint absent) — on the second run
+# the probe no longer saw a *commented* hint, took the insert branch, and
+# added a SECOND copy of the line. Matching both states is what makes this
+# idempotent.
+#
+# firstmatch: true pins it to Debian's `# auth required pam_wheel.so` hint,
+# which sits above `@include common-auth` — so the gate really runs before
+# authentication — and leaves the file's other pam_wheel examples (the `trust`
+# and `deny group=nosu` ones further down) untouched.
+#
+# insertafter is the fallback for a host whose hint is gone: right below
+# pam_rootok, never appended at the end of the file (after common-auth the
+# gate would no longer come first). use_uid checks the real uid of the calling
+# process, not getlogin() — which an attacker can spoof through utmp.
+#
+# REGEX DIALECTS: Ansible modules compile patterns with Python's re, where
+# POSIX classes like [[:space:]] are not classes at all — they silently match
+# nothing (no error, no change). The Bash twin's sed patterns cannot be copied
+# across as-is; \s is the equivalent here.
+- name: Gate su on membership of the su group (pam_wheel)
+  ansible.builtin.lineinfile:
+    path: /etc/pam.d/su
+    regexp: '^#?\s*auth\s+required\s+pam_wheel\.so(\s+use_uid.*)?\s*$'
+    line: "auth       required   pam_wheel.so use_uid group={{ su_restriction_group }}"
+    insertafter: '^auth\s+sufficient\s+pam_rootok\.so'
+    firstmatch: true
+    owner: root
+    group: root
+    mode: "0644"
+    state: present

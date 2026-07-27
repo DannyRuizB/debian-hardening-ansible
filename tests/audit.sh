@@ -352,6 +352,19 @@ on_node test -d /var/log/journal \
   && P "the persistent journal directory exists" \
   || W "no /var/log/journal" "create it / set Storage=persistent (journald role)"
 
+echo "-- Su restriction (CIS 5.7) ---------------------------------"
+on_node grep -Eq '^auth[[:space:]]+required[[:space:]]+pam_wheel\.so.*use_uid' /etc/pam.d/su \
+  && P "su is gated on group membership (pam_wheel use_uid)" \
+  || W "su is open to anyone with the password" "gate su on a group with pam_wheel (su_restriction role)"
+sugrp=$(on_node getent group sugroup | cut -d: -f4)
+if on_node getent group sugroup >/dev/null; then
+  [ -z "$sugrp" ] \
+    && P "the su group exists and is empty (sudo is the sanctioned path)" \
+    || W "the su group has members ($sugrp)" "prefer sudo; keep the group empty unless a user truly needs su"
+else
+  W "no dedicated su group" "create one and reference it from pam_wheel (su_restriction role)"
+fi
+
 echo "-- Accounts & files -----------------------------------------"
 on_node getent group sudo | grep -qE ':.*[a-z]' \
   && P "A non-root sudo account exists ($(on_node getent group sudo | sed 's/.*://'))" \

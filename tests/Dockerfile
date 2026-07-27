@@ -9,10 +9,12 @@ ENV container=docker
 # server has them, and site.yml's --check mode needs them to resolve packages.
 # pamtester drives the real PAM login stack for the faillock lockout check —
 # piping a password into su never works (PAM flushes pending tty input).
+# expect drives a real pty for the su-restriction check: it types the password
+# AFTER the prompt, which is the only way one actually arrives.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
        systemd systemd-sysv openssh-server python3 python3-apt sudo ca-certificates cron \
-       libpwquality-tools pamtester
+       libpwquality-tools pamtester expect
 
 ARG PUBKEY
 RUN mkdir -p /root/.ssh \
