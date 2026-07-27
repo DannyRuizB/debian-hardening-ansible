@@ -459,6 +459,21 @@ expect_line "fail2ban has ProtectHome" "^ProtectHome=yes$" \
 expect_line "fail2ban is still active under the sandbox" "^active$" \
   sudo systemctl is-active fail2ban
 
+echo "== Journald persistence (CIS 4.2.2) =="
+# `systemd-analyze cat-config` prints the EFFECTIVE merged config (base file +
+# our drop-in), so this checks what journald actually uses, not just the file.
+expect_line "journald storage is persistent (effective)" "^Storage=persistent$" \
+  "sudo systemd-analyze cat-config systemd/journald.conf | grep -E '^Storage='"
+expect_line "journald compresses stored logs (effective)" "^Compress=yes$" \
+  "sudo systemd-analyze cat-config systemd/journald.conf | grep -E '^Compress='"
+expect_line "journald caps its disk footprint (effective)" "^SystemMaxUse=" \
+  "sudo systemd-analyze cat-config systemd/journald.conf | grep -E '^SystemMaxUse='"
+# Behavioral: persistent storage means the on-disk journal directory exists
+# (journald creates it under /var/log/journal instead of the volatile /run
+# tmpfs the default uses).
+expect_ok "the persistent journal directory exists on disk" \
+  sudo test -d /var/log/journal
+
 # LAST on purpose: banning the client cuts our own SSH access to the node.
 # Lift the shield installed at the top — from here on we WANT to be bannable.
 docker exec dh-test-node fail2ban-client set sshd delignoreip 172.17.0.1 >/dev/null 2>&1 || true

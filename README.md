@@ -25,7 +25,7 @@ conditionals — not just run ad-hoc commands.
 
 ## What it does
 
-Fourteen roles, applied in order by `site.yml`:
+The roles below, applied in order by `site.yml`:
 
 | Role | Detail |
 |---|---|
@@ -51,6 +51,7 @@ Fourteen roles, applied in order by `site.yml`:
 | **file_permissions** | CIS 6.1: exact owner/group/mode on the account database — `passwd`/`group` 644 root:root, `shadow`/`gshadow` 640 root:shadow, **including the `-` backups** the shadow suite writes (same secrets, routinely forgotten) — plus three sweeps over the root filesystem: the world-writable bit cleared on files (any local user could rewrite them), orphan files adopted by root:root (a recycled UID would silently inherit them), and the sticky bit added to world-writable directories (without it anyone can delete anyone's files). SUID/SGID binaries are **inventoried, never stripped** — site-dependent per CIS, and blindly removing bits breaks `sudo`/`passwd`/`ping`. Scratch dirs (`/tmp`, `/var/tmp`) are excluded from the file sweeps: transient by design and already guarded by the sticky bit. The find probes are read-only and feed every remediation loop, so a clean second pass stays at `changed=0`. |
 | **ssh_access** | CIS 5.2: only members of a dedicated `ssh-users` group may log in over SSH (`AllowGroups ssh-users`) — sshd rejects anyone else *before* the auth stack runs, so a service account or a stale login can't be brute-forced over SSH if it can't reach SSH at all. **The lockout guard**: the whole role is gated on there being an `admin_user_name`, and the order is strict — group, then admin *in* the group, then the directive (a failed step aborts the play before `AllowGroups` goes live with no member). Own drop-in (`96-hardening-access.conf`), rendered through `sshd -t` before it replaces the live file. |
 | **service_sandboxing** | A systemd hardening drop-in for the `fail2ban` unit — `NoNewPrivileges`, `PrivateTmp`, `ProtectSystem=full`, `ProtectHome`, `ProtectKernelTunables`, `ProtectControlGroups`, `RestrictSUIDSGID`. A network daemon that shells out to `ufw` is a juicy foothold if exploited; systemd boxes it in for free. **Conservative on purpose** — fail2ban still needs the network and to run `ufw`, so no `PrivateNetwork` / `ProtectSystem=strict` / kernel-module lockout. `ProtectSystem=full` makes `/etc` read-only, but the ufw banaction must write `/etc/ufw/*.rules` — `ReadWritePaths=-/etc/ufw` carves that back out (leading `-` so the unit still starts if ufw was skipped). The e2e's fail2ban ban test is the proof the sandbox doesn't break banning. |
+| **journald** | CIS 4.2.2: persistent, compressed, size-capped journald logs. Debian's default keeps the journal in a tmpfs (`/run/log/journal`) and **loses everything on reboot** — so the one event you most want to read, the compromise that forced a restart, is gone. A drop-in (`/etc/systemd/journald.conf.d/99-hardening.conf`, never an edit of `journald.conf` that a package upgrade would clobber) sets `Storage=persistent` (logs survive in `/var/log/journal`), `Compress=yes` and `SystemMaxUse` (default `200M`, a role variable) so logs can't fill the disk. The role also creates `/var/log/journal` itself, so persistence starts now instead of one-reboot-behind. |
 
 ### Lockout guard
 

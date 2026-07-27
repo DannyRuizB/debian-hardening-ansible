@@ -1,0 +1,42 @@
+---
+# journald persistence — mirrors step 23 of harden.sh in the sibling Bash
+# repo (CIS 4.2.2). By default systemd-journald keeps logs in a tmpfs
+# (/run/log/journal) and loses everything on reboot — so the one event you
+# most want to look at, the compromise that forced a restart, is gone.
+# Storage=persistent moves them to /var/log/journal (survives reboots);
+# Compress keeps that cheap; SystemMaxUse caps the footprint so logs can't
+# fill the disk. A drop-in, not an edit of journald.conf (which a package
+# upgrade would clobber).
+- name: Ensure the journald drop-in directory exists
+  ansible.builtin.file:
+    path: /etc/systemd/journald.conf.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Make journald persistent, compressed and size-capped (drop-in)
+  ansible.builtin.copy:
+    dest: /etc/systemd/journald.conf.d/99-hardening.conf
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # Managed by Ansible (journald role, CIS 4.2.2). Edit the role, not this file.
+      [Journal]
+      Storage=persistent
+      Compress=yes
+      SystemMaxUse={{ journald_system_max_use }}
+  notify: Restart systemd-journald
+
+# journald creates this itself on restart, but making it explicit means the
+# first boot after hardening is already persistent instead of
+# one-reboot-behind. 2755: setgid so journal files land group-readable by
+# systemd-journal, the same layout journald itself would create.
+- name: Ensure the persistent journal directory exists
+  ansible.builtin.file:
+    path: /var/log/journal
+    state: directory
+    owner: root
+    group: systemd-journal
+    mode: "2755"
