@@ -1,0 +1,89 @@
+---
+# System account lockdown — mirrors step 25 of harden.sh in the sibling Bash
+# repo (CIS 5.4.2 / 6.2.9). A service account with a real shell is a login
+# waiting to happen: a valid `su` target, a valid SSH target while password
+# auth lives, and the landing spot of choice once the daemon running as it is
+# compromised (it already runs as that account).
+#
+# TWO independent gates, because either alone leaks: a locked password still
+# lets in anything that skips PAM's auth stage (an SSH key dropped in ~/.ssh,
+# `su -` from root, a cron entry), and a nologin shell still lets a
+# password-only check "succeed" for services that authenticate without
+# spawning a shell. Together the account can own files and run daemons, but
+# nobody can BE it interactively.
+#
+# The candidate set comes from getent facts, and the filtering lives in each
+# task's `when` — one condition per rule, readable line by line. The first
+# attempt precomputed the lists with chained selectattr and hit a real trap:
+# Jinja has NO `int` TEST (only the `int` filter), so `selectattr('value.1',
+# 'int', '<=', N)` fails outright — and the lexicographic alternative would
+# have been worse than an error, silently judging uid '1000' < '999'.
+
+- name: Read the account database
+  ansible.builtin.getent:
+    database: passwd
+
+# getent shadow needs root (become is on at the play level). Field 0 of each
+# entry is the password hash — what tells locked from usable.
+- name: Read the shadow database (password status lives here)
+  ansible.builtin.getent:
+    database: shadow
+
+# The admin user must never be locked: it is the only sudo-capable account and
+# it is what the idempotence pass connects as. It normally has uid >= 1000, but
+# an operator could have created it as a system account — belt and braces.
+- name: Build the never-touch list, including the admin user
+  ansible.builtin.set_fact:
+    system_accounts_protected: >-
+      {{ system_accounts_keep + ([admin_user_name] if admin_user_name is defined else []) }}
+
+# getent_passwd maps name -> [passwd, uid, gid, gecos, home, shell]:
+# uid is index 1, shell index 5 (checked against a live node — index 4 is the
+# home directory, an easy and silent off-by-one).
+#
+# A shell already ending in nologin/false is done, and an empty shell field
+# refuses a session just the same.
+- name: Give system accounts a non-login shell (CIS 5.4.2)
+  ansible.builtin.user:
+    name: "{{ item.key }}"
+    shell: "{{ system_accounts_nologin_shell }}"
+  loop: "{{ ansible_facts.getent_passwd | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+  when:
+    - item.key not in system_accounts_protected
+    - item.value[1] | int <= system_accounts_uid_max
+    - item.value[5] | length > 0
+    - item.value[5] is not search('(nologin|false)$')
+  register: system_accounts_shell_result
+
+# A leading '!' or '*' means locked; an EMPTY hash means no password at all,
+# which is worse than a weak one — both get locked. `password_lock` is the
+# declarative form of `passwd -l` (prefixes the hash with '!'), reversible
+# with `passwd -u` if an account ever legitimately needs to log in.
+- name: Lock system account passwords (CIS 6.2.9)
+  ansible.builtin.user:
+    name: "{{ item.key }}"
+    password_lock: true
+  loop: "{{ ansible_facts.getent_shadow | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+  when:
+    - item.key not in system_accounts_protected
+    - item.key in ansible_facts.getent_passwd
+    - ansible_facts.getent_passwd[item.key][1] | int <= system_accounts_uid_max
+    - item.value[0] is not match('[!*]')
+  register: system_accounts_lock_result
+
+- name: Report what the role changed
+  ansible.builtin.debug:
+    msg: >-
+      Gave a non-login shell to
+      {{ system_accounts_shell_result.results | selectattr('changed', 'defined')
+         | selectattr('changed') | map(attribute='item.key') | list | join(', ')
+         | default('no account', true) }};
+      locked the password of
+      {{ system_accounts_lock_result.results | selectattr('changed', 'defined')
+         | selectattr('changed') | map(attribute='item.key') | list | join(', ')
+         | default('no account', true) }}.
+      Never touched: {{ system_accounts_protected | join(', ') }}.

@@ -545,6 +545,40 @@ expect_line "root's password is locked again after the probe" '^[!*]' \
 # Anti-lockout: root must keep its own su (pam_rootok is above pam_wheel).
 expect_ok "root can still su despite the restriction" sudo su - root -c true
 
+echo "== System accounts (CIS 5.4.2 / 6.2.9) =="
+# The CI plants `dhsvc` BEFORE any pass with /bin/bash and a real password —
+# a packaged-daemon leftover, and a valid su / SSH target. Both gates must
+# have been taken away by the role.
+expect_line "the planted service account now has a non-login shell" \
+  '(/usr/sbin/nologin|/bin/false)$' \
+  "sudo getent passwd dhsvc"
+expect_line "the planted service account's password is locked" '^dhsvc L ' \
+  "sudo passwd -S dhsvc"
+# Behavioral, and it needs NO password: root walks past pam_rootok, so `su -`
+# gets all the way to exec'ing the account's shell — and nologin is what
+# refuses. A shell that opened would print the uid instead. This is the honest
+# signal (same reasoning as the su_restriction probe above: never trust an
+# exit code several mechanisms share).
+sysacct_out=$(on_node "sudo su - dhsvc -c id 2>&1" || true)
+case "$sysacct_out" in
+  *"not available"*|*"This account is currently"*)
+    pass "nobody can get an interactive shell as the service account (nologin refuses even root's su)" ;;
+  *uid=*)
+    fail "nobody can get an interactive shell as the service account (nologin refuses even root's su)" ;;
+  *)
+    fail "nobody can get an interactive shell as the service account (unexpected: $sysacct_out)" ;;
+esac
+# The role must not have swallowed the humans or the recovery paths.
+expect_line "the admin user keeps its login shell (humans untouched)" '(/bin/bash|/bin/sh)$' \
+  "sudo getent passwd opsadmin"
+expect_ok "the admin user can still run a login shell" sudo su - opsadmin -c true
+# root: locking it would brick single-user recovery, and CIS carves out the
+# sync/shutdown/halt trio whose entire purpose is a login shell.
+expect_line "root keeps a real shell (single-user recovery survives)" '(/bin/bash|/bin/sh)$' \
+  "sudo getent passwd root"
+expect_line "the sync account keeps its namesake shell (CIS exception)" '/bin/sync$' \
+  "sudo getent passwd sync"
+
 # LAST on purpose: banning the client cuts our own SSH access to the node.
 # Lift the shield installed at the top — from here on we WANT to be bannable.
 docker exec dh-test-node fail2ban-client set sshd delignoreip 172.17.0.1 >/dev/null 2>&1 || true
