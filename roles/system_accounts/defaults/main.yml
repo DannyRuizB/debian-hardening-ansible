@@ -1,0 +1,20 @@
+---
+# Accounts at or below this UID are the distro's service accounts (Debian's
+# SYS_UID_MAX); humans start at 1000 and are never touched by this role.
+system_accounts_uid_max: 999
+
+# The shell that refuses a session while still being a valid /etc/passwd entry.
+system_accounts_nologin_shell: /usr/sbin/nologin
+
+# Accounts this role must never touch:
+#   - root: locking it bricks single-user recovery.
+#   - sync / shutdown / halt: historical exceptions CIS itself carves out —
+#     they exist to run their namesake command AS a login shell.
+# The admin user is added to this list at runtime (see tasks/main.yml): it has
+# uid >= 1000 in practice, but an operator could have created it as a system
+# account, and locking the only sudo-capable account would be a lockout.
+system_accounts_keep:
+  - root
+  - sync
+  - shutdown
+  - halt

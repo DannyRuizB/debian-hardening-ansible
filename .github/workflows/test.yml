@@ -44,6 +44,16 @@ jobs:
             touch /usr/local/share/dh-ww-file && chmod 666 /usr/local/share/dh-ww-file &&
             touch /usr/local/share/dh-orphan && chown 12345:12345 /usr/local/share/dh-orphan"
 
+      # CIS 5.4.2 / 6.2.9 offender: a service account with a REAL shell and a
+      # usable password — exactly what a packaged daemon leaves behind, and a
+      # valid su / SSH target. The system_accounts role must take both away,
+      # so verify's checks flip from red to green because of this account.
+      - name: Plant a system account with a login shell for system_accounts to lock
+        run: |
+          docker exec dh-test-node bash -c "
+            useradd --system --shell /bin/bash --create-home dhsvc &&
+            echo 'dhsvc:Plant3d!Svc#2026' | chpasswd"
+
       # The CI key doubles as the admin user's key. Written as a vars file
       # because -e key=value can't carry the spaces of an OpenSSH public key.
       - name: Prepare the admin user's public key as a vars file
