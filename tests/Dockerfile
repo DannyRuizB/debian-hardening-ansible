@@ -14,7 +14,7 @@ ENV container=docker
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
        systemd systemd-sysv openssh-server python3 python3-apt sudo ca-certificates cron \
-       libpwquality-tools pamtester expect
+       libpwquality-tools pamtester expect rsyslog
 
 ARG PUBKEY
 RUN mkdir -p /root/.ssh \

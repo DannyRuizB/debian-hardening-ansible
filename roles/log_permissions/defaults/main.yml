@@ -1,0 +1,12 @@
+---
+# Path of the rsyslog drop-in that pins the creation mode of future logs.
+log_permissions_rsyslog_dropin: /etc/rsyslog.d/99-hardening.conf
+
+# The utmp family is world-readable BY DESIGN — `who` and `last` must work
+# for non-root users. wtmp and lastlog keep 664; btmp is tighter because
+# failed logins record usernames typed into the password prompt, which are
+# secrets more often than not.
+log_permissions_utmp_family:
+  - { path: /var/log/wtmp, mode: "0664" }
+  - { path: /var/log/lastlog, mode: "0664" }
+  - { path: /var/log/btmp, mode: "0660" }

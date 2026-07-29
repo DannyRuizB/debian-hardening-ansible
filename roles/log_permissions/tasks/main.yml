@@ -1,0 +1,112 @@
+---
+# Log file permissions — mirrors step 26 of harden.sh in the sibling Bash
+# repo (CIS 4.2.3). Logs are the forensic record AND reconnaissance
+# material: auth.log says who logs in from where and which attempts fail,
+# dpkg.log lists the exact package versions to shop CVEs for — and ships
+# world-readable on stock Debian. The file_permissions role guards log
+# INTEGRITY (its world-writable sweep is filesystem-wide); this one adds
+# CONFIDENTIALITY: nothing under /var/log stays readable to everyone.
+#
+# Two halves on purpose: fix the files that exist today, then teach rsyslog
+# to create tomorrow's files restricted too — a sweep without the second
+# half rots on the next logrotate cycle.
+
+- name: Check which utmp-family files exist
+  ansible.builtin.stat:
+    path: "{{ item.path }}"
+  loop: "{{ log_permissions_utmp_family }}"
+  loop_control:
+    label: "{{ item.path }}"
+  register: log_permissions_utmp_stat
+
+# Pinned to exact modes rather than swept: the generic rule below would take
+# world-read away and quietly break `last` for every non-root user.
+- name: Pin the utmp family to its by-design modes (root:utmp)
+  ansible.builtin.file:
+    path: "{{ item.item.path }}"
+    owner: root
+    group: utmp
+    mode: "{{ item.item.mode }}"
+  loop: "{{ log_permissions_utmp_stat.results }}"
+  loop_control:
+    label: "{{ item.item.path }}"
+  when: item.stat.exists
+
+# Rotated siblings (wtmp.1, btmp.1, ...) keep the same split.
+- name: Find rotated utmp-family siblings
+  ansible.builtin.find:
+    paths: /var/log
+    patterns:
+      - "wtmp.*"
+      - "lastlog.*"
+      - "btmp.*"
+    recurse: false
+  register: log_permissions_rotated
+
+- name: Pin rotated siblings to the same split
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    owner: root
+    group: utmp
+    mode: "{{ '0660' if (item.path | basename) is match('btmp') else '0664' }}"
+  loop: "{{ log_permissions_rotated.files }}"
+  loop_control:
+    label: "{{ item.path }}"
+
+# Everything else loses group-write/exec and ALL world access. Owner bits
+# and ownership stay (a www-data log keeps belonging to www-data); files
+# already tighter than 640 have no bit in /0037 and are never touched. The
+# probe is read-only and runs in --check too; the remediation loops over
+# its results, so a clean second pass stays at changed=0 (the
+# file_permissions pattern).
+- name: Find log files readable or writable beyond owner+group (CIS 4.2.3)
+  ansible.builtin.shell:
+    cmd: >-
+      find /var/log -xdev -type f
+      ! -name 'wtmp*' ! -name 'btmp*' ! -name 'lastlog*'
+      -perm /0037 -print 2>/dev/null || true
+  register: log_permissions_leaky
+  changed_when: false
+  check_mode: false
+
+- name: Strip group-write and world access from them
+  ansible.builtin.file:
+    path: "{{ item }}"
+    mode: g-wx,o-rwx
+  loop: "{{ log_permissions_leaky.stdout_lines }}"
+
+# Tomorrow's files: rsyslog creates logs with FileCreateMode. Debian's
+# stock rsyslog.conf already says 0640 — but that is one drifted edit away
+# from 644-for-everyone, and a drop-in loaded after the main file wins over
+# whatever that line has become (verified against a live daemon). Only when
+# rsyslog is installed: on journald-only boxes the journald role owns
+# logging, and journal files are 640 by design.
+- name: Check whether rsyslog is installed
+  ansible.builtin.stat:
+    path: /usr/sbin/rsyslogd
+  register: log_permissions_rsyslogd
+
+- name: Pin the creation mode of future logs (rsyslog drop-in)
+  ansible.builtin.copy:
+    dest: "{{ log_permissions_rsyslog_dropin }}"
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # Managed by Ansible (log_permissions role, CIS 4.2.3). Edit the role,
+      # not this file. Loaded after rsyslog.conf, so it wins over a drifted
+      # FileCreateMode there; existing files are swept by the role.
+      $FileCreateMode 0640
+      $DirCreateMode 0750
+  when: log_permissions_rsyslogd.stat.exists
+  notify: Restart rsyslog
+
+# The drop-in must merge cleanly with the rest of the config — the same bar
+# the Bash twin sets (rsyslogd -N1 validates the whole merged config, not
+# the fragment alone).
+- name: Validate the merged rsyslog configuration
+  ansible.builtin.command:
+    cmd: rsyslogd -N1
+  when: log_permissions_rsyslogd.stat.exists
+  changed_when: false
+  check_mode: false

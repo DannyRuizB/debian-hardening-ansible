@@ -579,6 +579,47 @@ expect_line "root keeps a real shell (single-user recovery survives)" '(/bin/bas
 expect_line "the sync account keeps its namesake shell (CIS exception)" '/bin/sync$' \
   "sudo getent passwd sync"
 
+echo "== Log file permissions (CIS 4.2.3) =="
+# The CI plants /var/log/dh-app.log at 0666 BEFORE any pass; the sweep must
+# have stripped group-write and all world access (666 -> 640), not by vacuum.
+expect_line "the planted world-readable log is now 0640" '^640$' \
+  "sudo stat -c %a /var/log/dh-app.log"
+# The deliberate exceptions survive: who/last for everyone needs wtmp 664,
+# while btmp stays tighter (failed logins record passwords typed as users).
+expect_line "wtmp keeps its by-design 664 root:utmp" '^664 root utmp$' \
+  "sudo stat -c '%a %U %G' /var/log/wtmp"
+expect_line "btmp is 660 root:utmp (tighter: it sees typed secrets)" '^660 root utmp$' \
+  "sudo stat -c '%a %U %G' /var/log/btmp"
+# Sweep-wide: nothing under /var/log is group-writable or world-accessible
+# beyond the utmp family — the promise, not just the planted file.
+leaky=$(on_node "sudo find /var/log -xdev -type f ! -name 'wtmp*' ! -name 'btmp*' ! -name 'lastlog*' -perm /0037" 2>/dev/null || true)
+if [ -z "$leaky" ]; then
+  pass "no log file is world-accessible or group-writable (utmp family aside)"
+else
+  fail "no log file is world-accessible or group-writable (leaky: $leaky)"
+fi
+# rsyslog: the drop-in is in place and the daemon accepts the full config.
+expect_line "rsyslog drop-in pins FileCreateMode 0640" 'FileCreateMode 0640' \
+  "sudo cat /etc/rsyslog.d/99-hardening.conf"
+expect_ok "rsyslog still validates its config (rsyslogd -N1)" sudo rsyslogd -N1
+# Behavioral, against the planted drift: the CI set rsyslog.conf's own
+# FileCreateMode to 0644 before the play. Delete syslog, restart, log one
+# line — the file rsyslog creates FROM SCRATCH must be born 0640 because the
+# drop-in (loaded after the main file) wins over the drifted value.
+on_node "sudo rm -f /var/log/syslog && sudo systemctl restart rsyslog" >/dev/null 2>&1 || true
+on_node "logger -t dh-verify 'log-permissions probe'" >/dev/null 2>&1 || true
+newmode=""
+for _ in $(seq 1 10); do
+  newmode=$(on_node "sudo stat -c %a /var/log/syslog 2>/dev/null" || true)
+  [ -n "$newmode" ] && break
+  sleep 1
+done
+if [ "$newmode" = "640" ]; then
+  pass "a log file rsyslog creates from scratch is born 0640 (drop-in beats drift)"
+else
+  fail "a log file rsyslog creates from scratch is born 0640 (got: ${newmode:-missing})"
+fi
+
 # LAST on purpose: banning the client cuts our own SSH access to the node.
 # Lift the shield installed at the top — from here on we WANT to be bannable.
 docker exec dh-test-node fail2ban-client set sshd delignoreip 172.17.0.1 >/dev/null 2>&1 || true

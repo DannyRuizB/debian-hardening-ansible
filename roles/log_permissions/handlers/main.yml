@@ -1,0 +1,9 @@
+---
+# No check-mode guard needed: every task that notifies this is gated on
+# /usr/sbin/rsyslogd existing, and the test image preinstalls rsyslog. No
+# daemon_reload either — the drop-in is rsyslog *configuration*, not a unit
+# file (the same reasoning as the journald handler).
+- name: Restart rsyslog
+  ansible.builtin.systemd:
+    name: rsyslog
+    state: restarted
