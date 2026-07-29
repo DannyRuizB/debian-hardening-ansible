@@ -33,3 +33,4 @@
     - journald
     - su_restriction
     - system_accounts
+    - log_permissions

@@ -54,6 +54,17 @@ jobs:
             useradd --system --shell /bin/bash --create-home dhsvc &&
             echo 'dhsvc:Plant3d!Svc#2026' | chpasswd"
 
+      # CIS 4.2.3 offenders: a world-readable log file, and rsyslog.conf's own
+      # FileCreateMode drifted to 0644 (one careless edit away on any box).
+      # The log_permissions role must sweep the file to 0640 AND re-impose
+      # 0640 on newly created logs via its drop-in — verify deletes syslog and
+      # proves the reborn file's mode, so this flips red to green for real.
+      - name: Plant log-permission offenders for log_permissions to fix
+        run: |
+          docker exec dh-test-node bash -c "
+            touch /var/log/dh-app.log && chmod 666 /var/log/dh-app.log &&
+            sed -i 's/^\\\$FileCreateMode 0640/\\\$FileCreateMode 0644/' /etc/rsyslog.conf"
+
       # The CI key doubles as the admin user's key. Written as a vars file
       # because -e key=value can't carry the spaces of an OpenSSH public key.
       - name: Prepare the admin user's public key as a vars file

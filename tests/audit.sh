@@ -385,6 +385,26 @@ done
   && P "every system account password is locked" \
   || W "system accounts with a usable password ($sysunlocked)" "lock them with password_lock (system_accounts role)"
 
+echo "-- Log file permissions (CIS 4.2.3) -------------------------"
+# Logs are recon material (auth.log: who logs in from where; dpkg.log: exact
+# versions to shop CVEs for — and it ships 644 on stock Debian). Nothing under
+# /var/log should be group-writable or world-accessible, except the utmp
+# family which is world-readable by design (who/last for non-root users).
+leakylogs=$(on_node find /var/log -xdev -type f ! -name 'wtmp*' ! -name 'btmp*' ! -name 'lastlog*' -perm /0037 | tr '\n' ' ')
+[ -z "$(printf '%s' "$leakylogs" | tr -d ' ')" ] \
+  && P "no log file is group-writable or world-accessible (utmp family aside)" \
+  || W "log files readable/writable beyond owner+group ($leakylogs)" "chmod g-wx,o-rwx (log_permissions role)"
+# Tomorrow's logs matter as much as today's: rsyslog must keep creating
+# files 0640 (a drifted FileCreateMode rots the sweep on the next rotation).
+# (bash -c: `command` is a shell builtin, docker exec can't run it bare)
+if on_node bash -c 'command -v rsyslogd' >/dev/null 2>&1; then
+  on_node grep -qs '^\$FileCreateMode 0640' /etc/rsyslog.d/99-hardening.conf \
+    && P "rsyslog pins FileCreateMode 0640 via the hardening drop-in" \
+    || W "rsyslog file-creation mode is not pinned" "write the drop-in (log_permissions role)"
+else
+  P "rsyslog not installed — journald owns logging (journal files are 640 by design)"
+fi
+
 echo "-- Accounts & files -----------------------------------------"
 on_node getent group sudo | grep -qE ':.*[a-z]' \
   && P "A non-root sudo account exists ($(on_node getent group sudo | sed 's/.*://'))" \
