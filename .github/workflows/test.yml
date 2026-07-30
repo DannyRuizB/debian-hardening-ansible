@@ -65,6 +65,17 @@ jobs:
             touch /var/log/dh-app.log && chmod 666 /var/log/dh-app.log &&
             sed -i 's/^\\\$FileCreateMode 0640/\\\$FileCreateMode 0644/' /etc/rsyslog.conf"
 
+      # CIS 4.4 offender: a logrotate snippet that re-creates its log 0666.
+      # Stock Debian already offends on its own (bare global create, dpkg and
+      # alternatives at 644) — this one is the evergreen guarantee should the
+      # distro ever clean up: the logrotate_perms role must tighten it to
+      # 0640 while keeping the owner/group arguments untouched.
+      - name: Plant a logrotate offender for logrotate_perms to tighten
+        run: |
+          docker exec dh-test-node bash -c "
+            touch /var/log/dh-rotated.log &&
+            printf '/var/log/dh-rotated.log {\n  weekly\n  rotate 2\n  create 0666 root adm\n}\n' > /etc/logrotate.d/dh-rotated"
+
       # The CI key doubles as the admin user's key. Written as a vars file
       # because -e key=value can't carry the spaces of an OpenSSH public key.
       - name: Prepare the admin user's public key as a vars file

@@ -11,10 +11,13 @@ ENV container=docker
 # piping a password into su never works (PAM flushes pending tty input).
 # expect drives a real pty for the su-restriction check: it types the password
 # AFTER the prompt, which is the only way one actually arrives.
+# logrotate is here for the logrotate_perms role: stock Debian snippets
+# (dpkg, alternatives) re-create their logs 644, and verify forces a real
+# rotation to prove the tightened create modes hold.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
        systemd systemd-sysv openssh-server python3 python3-apt sudo ca-certificates cron \
-       libpwquality-tools pamtester expect rsyslog
+       libpwquality-tools pamtester expect rsyslog logrotate
 
 ARG PUBKEY
 RUN mkdir -p /root/.ssh \

@@ -405,6 +405,22 @@ else
   P "rsyslog not installed — journald owns logging (journal files are 640 by design)"
 fi
 
+echo "-- Logrotate permissions (CIS 4.4) --------------------------"
+# Rotation is the third way a log is born: logrotate's create directive
+# decides the mode of every re-created file. Stock Debian's global create is
+# bare (clones the old mode, drift included) and dpkg/alternatives ship 644.
+if on_node bash -c 'command -v logrotate' >/dev/null 2>&1; then
+  on_node grep -Eqs '^create 0640' /etc/logrotate.conf \
+    && P "logrotate global create is pinned to 0640 (mode only, owner/group per file)" \
+    || W "logrotate global create is bare or loose (rotated logs clone or loosen)" "pin 'create 0640' in logrotate.conf (logrotate_perms role)"
+  loosecreate=$(on_node bash -c "grep -RE '^[[:space:]]*create[[:space:]]+0?[0-7]([1-35-7][0-7]|[0-7][1-7])([[:space:]]|\$)' /etc/logrotate.d 2>/dev/null | grep -Ev '^/etc/logrotate.d/(wtmp|btmp):'" | tr '\n' ' ' || true)
+  [ -z "$(printf '%s' "$loosecreate" | tr -d ' ')" ] \
+    && P "no logrotate.d snippet re-creates logs beyond owner+group (wtmp/btmp keep the utmp split)" \
+    || W "logrotate.d snippets re-create logs too open ($loosecreate)" "tighten their create modes (logrotate_perms role)"
+else
+  P "logrotate not installed — nothing re-creates rotated logs"
+fi
+
 echo "-- Accounts & files -----------------------------------------"
 on_node getent group sudo | grep -qE ':.*[a-z]' \
   && P "A non-root sudo account exists ($(on_node getent group sudo | sed 's/.*://'))" \
