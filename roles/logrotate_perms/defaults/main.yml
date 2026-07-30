@@ -1,0 +1,8 @@
+---
+# Snippets that keep their loose create modes ON PURPOSE: wtmp and btmp
+# carry the utmp family's by-design split (664/660 root:utmp) so `who` and
+# `last` keep working for non-root users — the same exception the
+# log_permissions sweep makes.
+logrotate_perms_exempt_snippets:
+  - wtmp
+  - btmp

@@ -620,6 +620,53 @@ else
   fail "a log file rsyslog creates from scratch is born 0640 (got: ${newmode:-missing})"
 fi
 
+echo "== Logrotate permissions (CIS 4.4) =="
+# Rotation is the THIRD way a log is born: logrotate's create directive
+# decides the mode of every file it re-creates, and stock Debian's global
+# create is bare (clones the old mode) while dpkg/alternatives say 644.
+expect_line "logrotate global create is pinned to 0640" '^create 0640' \
+  "sudo cat /etc/logrotate.conf"
+# No snippet may re-create a log group-writable/executable or world-anything;
+# wtmp/btmp keep their designed utmp split, same exception as the sweep.
+loosecreate=$(on_node "grep -RE '^[[:space:]]*create[[:space:]]+0?[0-7]([1-35-7][0-7]|[0-7][1-7])([[:space:]]|\$)' /etc/logrotate.d 2>/dev/null | grep -Ev '^/etc/logrotate.d/(wtmp|btmp):'" || true)
+if [ -z "$loosecreate" ]; then
+  pass "no logrotate.d snippet re-creates logs beyond owner+group (wtmp/btmp aside)"
+else
+  fail "no logrotate.d snippet re-creates logs beyond owner+group (loose: $loosecreate)"
+fi
+expect_ok "logrotate still swallows the whole edited config" \
+  sudo logrotate -d /etc/logrotate.conf
+# Behavioral: plant a fresh 0600 log with a snippet that says NOTHING about
+# create, force a real rotation of the full config, and the re-created file
+# must be born 0640 — the pinned GLOBAL mode applied (a bare create would
+# have cloned 0600, a drifted one 0644). The stock dpkg snippet — 644 on
+# stock Debian, tightened by the role — must re-create dpkg.log 0640 too,
+# and the whole of /var/log must come out as tight as the sweep left it:
+# rotation no longer rots the sweep.
+on_node "printf 'probe\n' | sudo tee /var/log/dh-rotate-probe.log >/dev/null && sudo chmod 0600 /var/log/dh-rotate-probe.log" >/dev/null 2>&1 || true
+on_node "printf '/var/log/dh-rotate-probe.log {\n  daily\n  rotate 1\n}\n' | sudo tee /etc/logrotate.d/dh-rotate-probe >/dev/null" >/dev/null 2>&1 || true
+on_node "sudo logrotate --force /etc/logrotate.conf" >/dev/null 2>&1 || true
+probemode=$(on_node "sudo stat -c %a /var/log/dh-rotate-probe.log 2>/dev/null" || true)
+if [ "$probemode" = "640" ]; then
+  pass "a log re-created by forced rotation is born 0640 (global create pin holds)"
+else
+  fail "a log re-created by forced rotation is born 0640 (got: ${probemode:-missing})"
+fi
+dpkgmode=$(on_node "sudo stat -c %a /var/log/dpkg.log 2>/dev/null" || true)
+if [ "$dpkgmode" = "640" ]; then
+  pass "dpkg.log survives its own rotation restricted (stock 644 snippet tightened)"
+else
+  fail "dpkg.log survives its own rotation restricted (got: ${dpkgmode:-missing})"
+fi
+postleaky=$(on_node "sudo find /var/log -xdev -type f ! -name 'wtmp*' ! -name 'btmp*' ! -name 'lastlog*' -perm /0037" 2>/dev/null || true)
+if [ -z "$postleaky" ]; then
+  pass "after a full forced rotation /var/log is still tight (utmp family aside)"
+else
+  fail "after a full forced rotation /var/log is still tight (leaky: $postleaky)"
+fi
+# Leave no probe behind.
+on_node "sudo rm -f /etc/logrotate.d/dh-rotate-probe /var/log/dh-rotate-probe.log*" >/dev/null 2>&1 || true
+
 # LAST on purpose: banning the client cuts our own SSH access to the node.
 # Lift the shield installed at the top — from here on we WANT to be bannable.
 docker exec dh-test-node fail2ban-client set sshd delignoreip 172.17.0.1 >/dev/null 2>&1 || true

@@ -1,0 +1,95 @@
+---
+# Logrotate permissions — mirrors step 27 of harden.sh in the sibling Bash
+# repo (CIS 4.4). Rotation is the THIRD way a log file is born (after the
+# service and rsyslog, both covered by log_permissions): logrotate's
+# `create` directive decides the mode of every file it re-creates, and
+# stock Debian offends on its own — the global create is BARE (it clones
+# the rotated file's mode, drift included) and the dpkg/alternatives
+# snippets say `create 644 root root`, so the very dpkg.log the sweep just
+# tightened comes back world-readable on the next monthly cycle.
+#
+# Two moves, same shape as the sweep: pin the global create in
+# logrotate.conf, then tighten any snippet whose own create grants
+# group-write/exec or world access. Mode only, on purpose: owner and group
+# arguments are never touched, so a service's log keeps belonging to the
+# service. The wtmp/btmp snippets keep their designed utmp split.
+
+- name: Check whether logrotate is installed
+  ansible.builtin.stat:
+    path: /usr/sbin/logrotate
+  register: logrotate_perms_bin
+
+- name: Harden how rotation re-creates logs
+  when: logrotate_perms_bin.stat.exists
+  block:
+    # Stock Debian's global line is a bare `create`: whatever mode the old
+    # file had — including drift — is what the new one gets. Mode-only
+    # (no owner/group) so each file keeps belonging to its service.
+    - name: Pin the bare global create to 0640 (stock clones the old mode)
+      ansible.builtin.replace:
+        path: /etc/logrotate.conf
+        regexp: '^(\s*)create\s*$'
+        replace: '\g<1>create 0640'
+
+    # Guard for the exotic box with no global create at all: position
+    # matters — a global at the END of the file would apply to nothing, so
+    # it goes above the include that pulls in the per-package snippets.
+    - name: Check whether logrotate.conf has any global create
+      ansible.builtin.command:
+        cmd: grep -Eq '^[[:space:]]*create\b' /etc/logrotate.conf
+      register: logrotate_perms_has_create
+      failed_when: logrotate_perms_has_create.rc not in [0, 1]
+      changed_when: false
+      check_mode: false
+
+    - name: Add a global create above the include when none exists
+      ansible.builtin.lineinfile:
+        path: /etc/logrotate.conf
+        line: create 0640
+        insertbefore: '^\s*include\b'
+        firstmatch: true
+      when: logrotate_perms_has_create.rc == 1
+
+    # Read-only probe, runs in --check too; the remediation loops over its
+    # results, so a clean second pass stays at changed=0 (the same pattern
+    # as the log_permissions sweep). Emits "file mode newmode" triples for
+    # every create whose mode has a bit in 0037 (g-wx,o-rwx — the sweep's
+    # threshold); the exempt snippets keep their utmp split.
+    - name: Find create directives that grant group-write or world access
+      ansible.builtin.shell:
+        cmd: |
+          set -o pipefail
+          for f in /etc/logrotate.conf /etc/logrotate.d/*; do
+            [ -f "$f" ] || continue
+            case "$(basename "$f")" in {{ logrotate_perms_exempt_snippets | join('|') }}) continue;; esac
+            modes=$(grep -E '^[[:space:]]*create[[:space:]]+[0-7]{3,4}\b' "$f" 2>/dev/null | awk '{print $2}' | sort -u) || true
+            for mode in $modes; do
+              dec=$((8#$mode))
+              [ $((dec & 8#0037)) -ne 0 ] || continue
+              printf '%s %s %04o\n' "$f" "$mode" "$((dec & ~8#0037))"
+            done
+          done
+          exit 0
+        executable: /bin/bash
+      register: logrotate_perms_loose
+      changed_when: false
+      check_mode: false
+
+    - name: Tighten the loose create modes (owner/group arguments stay)
+      ansible.builtin.replace:
+        path: "{{ logrotate_perms_parts[0] }}"
+        regexp: '^(\s*create\s+){{ logrotate_perms_parts[1] }}(\s|$)'
+        replace: '\g<1>{{ logrotate_perms_parts[2] }}\g<2>'
+      vars:
+        logrotate_perms_parts: "{{ item.split(' ') }}"
+      loop: "{{ logrotate_perms_loose.stdout_lines }}"
+      loop_control:
+        label: "{{ logrotate_perms_parts[0] }} {{ logrotate_perms_parts[1] }} -> {{ logrotate_perms_parts[2] }}"
+
+    # The whole config must still parse — the same bar the Bash twin sets
+    # (logrotate -d reads and simulates everything, changing nothing).
+    - name: Validate the edited logrotate configuration
+      ansible.builtin.command:
+        cmd: logrotate -d /etc/logrotate.conf
+      changed_when: false
+      check_mode: false
