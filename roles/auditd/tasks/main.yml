@@ -19,46 +19,55 @@
     state: present
     update_cache: true
     cache_valid_time: 3600
+  register: auditd_pkg
 
-- name: Ensure the rules.d directory exists and is root-only
-  ansible.builtin.file:
-    path: /etc/audit/rules.d
-    state: directory
-    owner: root
-    group: root
-    mode: "0750"
+# In check mode the package isn't really installed above: /etc/audit and
+# auditd.conf don't exist for the edits to land in, and the unit isn't
+# there to enable. Skip only in that exact case (the same guard as the
+# fail2ban and unattended_upgrades roles); a real run installs the package
+# first and configures it normally.
+- name: Configure and enable auditd
+  when: not (ansible_check_mode and auditd_pkg.changed)
+  block:
+    - name: Ensure the rules.d directory exists and is root-only
+      ansible.builtin.file:
+        path: /etc/audit/rules.d
+        state: directory
+        owner: root
+        group: root
+        mode: "0750"
 
-- name: Stage the hardening audit ruleset
-  ansible.builtin.copy:
-    src: hardening.rules
-    dest: /etc/audit/rules.d/hardening.rules
-    owner: root
-    group: root
-    mode: "0640"
-  notify: Load audit rules
+    - name: Stage the hardening audit ruleset
+      ansible.builtin.copy:
+        src: hardening.rules
+        dest: /etc/audit/rules.d/hardening.rules
+        owner: root
+        group: root
+        mode: "0640"
+      notify: Load audit rules
 
-# keep_logs keeps the history instead of rotating it away; syslog shouts on
-# low space without a mail stack (CIS 4.1.2). lineinfile against the stock
-# file — auditd.conf has no drop-in directory.
-- name: Keep the audit history instead of rotating it away
-  ansible.builtin.lineinfile:
-    path: /etc/audit/auditd.conf
-    regexp: '^\s*max_log_file_action\s*='
-    line: "max_log_file_action = {{ auditd_max_log_file_action }}"
-  notify: Restart auditd
+    # keep_logs keeps the history instead of rotating it away; syslog
+    # shouts on low space without a mail stack (CIS 4.1.2). lineinfile
+    # against the stock file — auditd.conf has no drop-in directory.
+    - name: Keep the audit history instead of rotating it away
+      ansible.builtin.lineinfile:
+        path: /etc/audit/auditd.conf
+        regexp: '^\s*max_log_file_action\s*='
+        line: "max_log_file_action = {{ auditd_max_log_file_action }}"
+      notify: Restart auditd
 
-- name: Shout to syslog when audit disk space runs low
-  ansible.builtin.lineinfile:
-    path: /etc/audit/auditd.conf
-    regexp: '^\s*space_left_action\s*='
-    line: "space_left_action = {{ auditd_space_left_action }}"
-  notify: Restart auditd
+    - name: Shout to syslog when audit disk space runs low
+      ansible.builtin.lineinfile:
+        path: /etc/audit/auditd.conf
+        regexp: '^\s*space_left_action\s*='
+        line: "space_left_action = {{ auditd_space_left_action }}"
+      notify: Restart auditd
 
-# Enabled, not started: in a container the daemon cannot reach the kernel
-# audit netlink and a start would fail the play over an environment
-# limitation, not a hardening problem. On real metal the enabled unit
-# starts (and loads the staged rules) on the next boot.
-- name: Enable auditd at boot
-  ansible.builtin.systemd_service:
-    name: auditd
-    enabled: true
+    # Enabled, not started: in a container the daemon cannot reach the
+    # kernel audit netlink and a start would fail the play over an
+    # environment limitation, not a hardening problem. On real metal the
+    # enabled unit starts (and loads the staged rules) on the next boot.
+    - name: Enable auditd at boot
+      ansible.builtin.systemd_service:
+        name: auditd
+        enabled: true
