@@ -1,0 +1,35 @@
+# Managed by Ansible (auditd role, CIS 4.1). Edit the role, not this file.
+# augenrules compiles every rules.d file into /etc/audit/audit.rules when
+# the service starts. Keys (-k) are what you hand to `ausearch -k`.
+
+## Self-protection: the audit config and its logs are themselves watched.
+-w /etc/audit/ -p wa -k auditconfig
+-w /var/log/audit/ -p wa -k auditlog
+
+## Identity (CIS 4.1.3): every write to the account database is recorded.
+-w /etc/passwd -p wa -k identity
+-w /etc/group -p wa -k identity
+-w /etc/shadow -p wa -k identity
+-w /etc/gshadow -p wa -k identity
+-w /etc/security/opasswd -p wa -k identity
+
+## Privilege scope: sudoers edits are never silent.
+-w /etc/sudoers -p wa -k scope
+-w /etc/sudoers.d/ -p wa -k scope
+
+## The door: sshd configuration (including this repo's own drop-ins).
+-w /etc/ssh/sshd_config -p wa -k sshd
+-w /etc/ssh/sshd_config.d/ -p wa -k sshd
+
+## Time manipulation is log forgery 101: both arches, plus the zone file.
+-a always,exit -F arch=b64 -S adjtimex,settimeofday,clock_settime -k time-change
+-a always,exit -F arch=b32 -S adjtimex,settimeofday,clock_settime -k time-change
+-w /etc/localtime -p wa -k time-change
+
+## Kernel modules: loading code into the kernel is always worth a line.
+-a always,exit -F arch=b64 -S init_module,finit_module,delete_module -k modules
+-a always,exit -F arch=b32 -S init_module,finit_module,delete_module -k modules
+
+# No `-e 2` (immutable) on purpose: the playbook is safe to re-run, and an
+# immutable config would make every later rule change need a reboot. Flip
+# it yourself once the ruleset is final on a production box.

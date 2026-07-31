@@ -667,6 +667,32 @@ fi
 # Leave no probe behind.
 on_node "sudo rm -f /etc/logrotate.d/dh-rotate-probe /var/log/dh-rotate-probe.log*" >/dev/null 2>&1 || true
 
+echo "== Auditd staged and enabled (CIS 4.1) =="
+# The promise is configuration: package on disk, ruleset staged, service
+# enabled at boot, history kept. Loading into the running kernel is not
+# probed — the audit netlink is not namespaced, so this container gets EPERM
+# by construction; on real metal the enabled service loads the rules at boot.
+expect_ok "auditd is installed" sudo dpkg -s auditd
+expect_line "auditd is enabled at boot" '^enabled$' \
+  sudo systemctl is-enabled auditd
+expect_ok "the staged ruleset is root-only (0640 root:root)" \
+  "test \"\$(sudo stat -c '%a %U %G' /etc/audit/rules.d/hardening.rules)\" = '640 root root'"
+# Behavioral, container-safe: run the REAL toolchain. augenrules (without
+# --load) compiles every rules.d file into /etc/audit/audit.rules — if our
+# staged rules survive that compile and the keys land in the merged output,
+# they are exactly what the kernel will be handed at boot.
+on_node "sudo augenrules >/dev/null 2>&1" || true
+merged=$(on_node "sudo cat /etc/audit/audit.rules 2>/dev/null" || true)
+for key in identity scope sshd time-change modules; do
+  if printf '%s\n' "$merged" | grep -q -- "-k $key"; then
+    pass "augenrules compiles the staged rules: '-k $key' reaches the merged audit.rules"
+  else
+    fail "augenrules compiles the staged rules: '-k $key' missing from the merged audit.rules"
+  fi
+done
+expect_line "audit history is kept, not rotated away" '^max_log_file_action = keep_logs$' \
+  "sudo grep -E '^max_log_file_action' /etc/audit/auditd.conf"
+
 # LAST on purpose: banning the client cuts our own SSH access to the node.
 # Lift the shield installed at the top — from here on we WANT to be bannable.
 docker exec dh-test-node fail2ban-client set sshd delignoreip 172.17.0.1 >/dev/null 2>&1 || true

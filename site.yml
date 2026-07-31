@@ -35,3 +35,4 @@
     - system_accounts
     - log_permissions
     - logrotate_perms
+    - auditd
