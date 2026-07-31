@@ -1,0 +1,7 @@
+---
+# auditd.conf pins (CIS 4.1.2). keep_logs keeps the history instead of
+# silently rotating it away; syslog shouts on low disk space without
+# needing a mail stack — it lands in the journal the journald role already
+# made persistent.
+auditd_max_log_file_action: keep_logs
+auditd_space_left_action: syslog

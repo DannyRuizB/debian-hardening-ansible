@@ -33,5 +33,11 @@
     - journald
     - su_restriction
     - system_accounts
+    # auditd (step 28 in the Bash twin) runs BEFORE the log sweep on
+    # purpose: installing the package makes apt write its own /var/log/apt
+    # files with loose modes, and the sweep must be the last thing that
+    # touches /var/log — or the second pass re-tightens what apt just
+    # wrote and the idempotence gate breaks.
+    - auditd
     - log_permissions
     - logrotate_perms

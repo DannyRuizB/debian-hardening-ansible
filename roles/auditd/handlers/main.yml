@@ -1,0 +1,20 @@
+---
+# Both handlers are best-effort on purpose: the audit netlink is not
+# namespaced, so inside a container (the CI node, WSL) neither the daemon
+# nor `augenrules --load` can reach the kernel — while on any real server
+# the enabled service compiles and loads the staged rules at boot anyway.
+# failed_when: false keeps an environment limitation from failing the play;
+# changed_when: false keeps the idempotence gate honest (the copy/lineinfile
+# tasks already reported the real change).
+
+- name: Load audit rules
+  ansible.builtin.command:
+    cmd: augenrules --load
+  failed_when: false
+  changed_when: false
+
+- name: Restart auditd
+  ansible.builtin.systemd_service:
+    name: auditd
+    state: restarted
+  failed_when: false

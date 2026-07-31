@@ -421,6 +421,28 @@ else
   P "logrotate not installed — nothing re-creates rotated logs"
 fi
 
+# The kernel audit trail: the logging chapter's last piece — journald keeps
+# logs, the sweep guards them, logrotate re-creates them right; auditd
+# records WHO touched the crown jewels. Configuration is what gets graded
+# (a container kernel has no audit netlink, so loaded rules can't be); the
+# staged rules activate at boot on real metal.
+on_node dpkg -s auditd >/dev/null \
+  && P "auditd is installed" \
+  || F "auditd is not installed" "apt install auditd (auditd role)"
+[ "$(on_node systemctl is-enabled auditd)" = enabled ] \
+  && P "auditd is enabled at boot" \
+  || F "auditd is not enabled at boot" "systemctl enable auditd (auditd role)"
+missingkeys=$(on_node bash -c 'for k in identity scope sshd time-change modules; do grep -qs -- "-k $k" /etc/audit/rules.d/hardening.rules || printf "%s " "$k"; done' || true)
+[ -z "$(printf '%s' "$missingkeys" | tr -d ' ')" ] \
+  && P "staged audit rules watch identity, sudoers, sshd, time and modules" \
+  || F "staged audit rules incomplete (missing: $missingkeys)" "re-run the auditd role"
+[ "$(on_node stat -c '%a %U %G' /etc/audit/rules.d/hardening.rules)" = "640 root root" ] \
+  && P "the staged audit ruleset is root-only (0640 root:root)" \
+  || W "the staged audit ruleset permissions drifted" "chmod 0640 + chown root:root (auditd role)"
+on_node grep -Eqs '^max_log_file_action = keep_logs' /etc/audit/auditd.conf \
+  && P "audit history is kept, not rotated away (max_log_file_action = keep_logs)" \
+  || W "auditd rotates its history away" "pin max_log_file_action = keep_logs (auditd role)"
+
 echo "-- Accounts & files -----------------------------------------"
 on_node getent group sudo | grep -qE ':.*[a-z]' \
   && P "A non-root sudo account exists ($(on_node getent group sudo | sed 's/.*://'))" \
