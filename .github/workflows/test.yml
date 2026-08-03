@@ -90,6 +90,18 @@ jobs:
             printf 'dh@elsewhere.example\n' > /home/dhhome/.forward &&
             chown dhhome:dhhome /home/dhhome/.netrc /home/dhhome/.forward"
 
+      # Step-30 offender: /proc mounted WITHOUT hidepid (the stock state) and
+      # ptrace_scope forced back to 0. The second half matters — the runner
+      # kernel already ships ptrace_scope=1, so without planting the 0 the
+      # check would pass with the role doing nothing (tautological).
+      - name: Plant open process visibility for process_isolation to close
+        run: |
+          docker exec dh-test-node bash -c "
+            mount -o remount,hidepid=0 /proc &&
+            sysctl -qw kernel.yama.ptrace_scope=0 &&
+            findmnt -no OPTIONS /proc &&
+            sysctl -n kernel.yama.ptrace_scope"
+
       # The CI key doubles as the admin user's key. Written as a vars file
       # because -e key=value can't carry the spaces of an OpenSSH public key.
       - name: Prepare the admin user's public key as a vars file

@@ -724,6 +724,34 @@ fi
 expect_ok "…while root still can (the denial is the mode, not absence)" \
   "sudo ls /home/dhhome"
 
+echo "== Process isolation (/proc hidepid + ptrace_scope) =="
+# The CI plants the offending state before the first pass: /proc mounted
+# WITHOUT hidepid and ptrace_scope back at 0, so these checks flip from red
+# to green because the role did the work.
+expect_line "/proc is mounted with hidepid (list hidden)" 'hidepid=(2|invisible)' \
+  "findmnt -no OPTIONS /proc"
+expect_line "the hidepid option is pinned in fstab (survives a reboot)" 'hidepid=' \
+  "grep -E '^[^#[:space:]]+[[:space:]]+/proc[[:space:]]' /etc/fstab"
+expect_line "kernel.yama.ptrace_scope is 1 (only a parent may attach)" '^1$' \
+  "sudo sysctl -n kernel.yama.ptrace_scope"
+expect_line "ptrace_scope is pinned in its own drop-in" '^kernel.yama.ptrace_scope = 1$' \
+  "grep -E '^kernel.yama.ptrace_scope' /etc/sysctl.d/99-hardening-process.conf"
+# THE behavioral check, and the whole point of the role: an unprivileged
+# account must see ONLY its own processes. Before hardening, `ps` as nobody
+# lists root's init/journald/cron (verified on a stock node) — the free
+# inventory that also leaks passwords sitting in other users' command lines.
+# 2>/dev/null on the ssh call: the pre-auth banner lands on stderr and would
+# otherwise print in the middle of the check list.
+others=$(on_node "sudo setpriv --reuid=65534 --regid=65534 --clear-groups ps -eo user= 2>/dev/null | sort -u | grep -v nobody | tr '\n' ' '" 2>/dev/null || true)
+if [ -z "$(printf '%s' "$others" | tr -d ' ')" ]; then
+  pass "an unprivileged user sees no other user's processes in ps"
+else
+  fail "an unprivileged user sees no other user's processes in ps (saw: $others)"
+fi
+# …and root is deliberately exempt: hidepid must not blind the admin.
+expect_ok "root still sees the whole process table" \
+  "sudo ps -eo user= | sort -u | grep -q '^root$'"
+
 # LAST on purpose: banning the client cuts our own SSH access to the node.
 # Lift the shield installed at the top — from here on we WANT to be bannable.
 docker exec dh-test-node fail2ban-client set sshd delignoreip 172.17.0.1 >/dev/null 2>&1 || true

@@ -44,3 +44,6 @@
     # Homes touch /home, not /var/log, so running after the log sweep is
     # safe — and it mirrors the Bash twin, where step 29 runs last.
     - home_permissions
+    # Process isolation last: it touches /proc and a sysctl of its own, so it
+    # is out of the way of the /var/log sweep ordering rule above.
+    - process_isolation

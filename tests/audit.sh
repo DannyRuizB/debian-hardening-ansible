@@ -463,6 +463,20 @@ fwd=$(on_node bash -c 'awk -F: '\''($3 >= 1000 && $7 !~ /(nologin|false)$/) || $
   && P "no .forward files silently rerouting mail" \
   || W ".forward files present: $fwd" "remove them (home_permissions role)"
 
+echo "-- Process isolation ----------------------------------------"
+# `ps aux` on a stock box hands every local account a full inventory plus any
+# password sitting in someone else's command line; ptrace lets a process read
+# another's memory (browser cookies, ssh-agent keys) with no root at all.
+on_node findmnt -no OPTIONS /proc | grep -Eq 'hidepid=(2|invisible)' \
+  && P "/proc hides other users' processes (hidepid)" \
+  || W "/proc shows every user's processes (ps aux leaks command lines)" "remount /proc with hidepid=2 (process_isolation role)"
+on_node grep -Eqs '^[^#[:space:]]+[[:space:]]+/proc[[:space:]].*hidepid=' /etc/fstab \
+  && P "the hidepid option is pinned in fstab (survives a reboot)" \
+  || W "hidepid is not pinned in fstab" "add a /proc line with hidepid (process_isolation role)"
+[ "$(sctl kernel.yama.ptrace_scope)" = "1" ] \
+  && P "ptrace is restricted to direct parents (yama.ptrace_scope=1)" \
+  || W "any process can ptrace another of the same user" "set kernel.yama.ptrace_scope=1 (process_isolation role)"
+
 echo "-- Accounts & files -----------------------------------------"
 on_node getent group sudo | grep -qE ':.*[a-z]' \
   && P "A non-root sudo account exists ($(on_node getent group sudo | sed 's/.*://'))" \

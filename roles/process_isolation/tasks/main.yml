@@ -1,0 +1,143 @@
+---
+# Process isolation — mirrors step 30 of harden.sh in the sibling Bash repo.
+# Your neighbour's process is private, behind TWO doors because each one
+# alone leaks:
+#
+#   /proc hidepid   hides the process LIST — on a stock box `ps aux` hands
+#                   every local account an inventory of what runs and as
+#                   whom, plus any secret sitting in someone else's command
+#                   line (mysql -pSecret, a curl with a token in the URL).
+#   ptrace_scope=1  stops reading a process's MEMORY — with the default 0
+#                   anything running as you can attach to your browser and
+#                   lift its session cookies, or to ssh-agent/gpg-agent and
+#                   lift the keys, with no root at all.
+#
+# Both halves are best-effort where the kernel won't allow them (a /proc that
+# can't be remounted, a kernel built without Yama): a hardening role must not
+# abort the play over an environment it cannot control — the same stance the
+# auditd role takes with the audit netlink.
+
+# ---- Door 1: /proc hidepid -------------------------------------------------
+
+# An admin may already have pinned /proc with their own options (a chosen
+# hidepid=1, a gid= for monitoring). Read them so the hardened entry keeps
+# them and only what's missing is added. Read-only, and the merge below needs
+# the result even during --check, hence check_mode: false.
+- name: Read any existing /proc options from fstab
+  ansible.builtin.command: awk '$1 !~ /^#/ && $2 == "/proc" {print $4; exit}' /etc/fstab
+  register: process_isolation_existing
+  changed_when: false
+  check_mode: false
+
+- name: Work out the current options, the wanted ones and the keys in play
+  ansible.builtin.set_fact:
+    # Debian ships no /proc line at all, hence the sane default.
+    process_isolation_current: >-
+      {{ (process_isolation_existing.stdout or 'defaults,nosuid,nodev,noexec').split(',') }}
+    process_isolation_wanted: >-
+      {{ ['hidepid=' ~ process_isolation_hidepid]
+         + (['gid=' ~ process_isolation_hidepid_gid]
+            if process_isolation_hidepid_gid | length > 0 else []) }}
+
+# Merge BY KEY, not by whole option: an admin who chose hidepid=1 keeps that
+# choice instead of getting a second, contradictory copy of the same key.
+# Order stays deterministic (existing first, then the additions) — never
+# union(), whose order is unstable across processes and silently breaks
+# idempotence (the lesson from the mount_options role).
+- name: Compose the hardened /proc option string
+  ansible.builtin.set_fact:
+    process_isolation_opts: >-
+      {{ (process_isolation_current
+          + (process_isolation_wanted
+             | reject('search', '^(' ~ (process_isolation_keys | join('|')) ~ ')=')
+             | list))
+         | join(',') }}
+  vars:
+    process_isolation_keys: >-
+      {{ process_isolation_current | map('regex_replace', '=.*$', '') | list }}
+
+# Debian ships NO /proc line (the initramfs and systemd mount it), so without
+# this pin the hardening dies at the next reboot. state: present writes fstab
+# only — the live remount is judged separately below.
+- name: Pin /proc in fstab with the hidepid option
+  ansible.posix.mount:
+    path: /proc
+    src: proc
+    fstype: proc
+    opts: "{{ process_isolation_opts }}"
+    state: present
+
+# The mount module keys its remount off the fstab line — if someone remounted
+# /proc without hidepid but fstab never drifted, it would look "ok". Check the
+# LIVE options and remount only when hidepid is genuinely absent, so a second
+# pass changes nothing and live drift still gets corrected.
+- name: Read the live mount options of /proc
+  ansible.builtin.command: findmnt -no OPTIONS /proc
+  register: process_isolation_live
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+# Modern kernels report hidepid=2 as "invisible" and hidepid=1 as "noaccess",
+# so both spellings count as already-applied. state: remounted always reports
+# changed, so this when-guard is what keeps a second pass at changed=0.
+- name: Remount /proc with hidepid when the live mount lacks it
+  ansible.posix.mount:
+    path: /proc
+    src: proc
+    fstype: proc
+    opts: "{{ process_isolation_opts }}"
+    state: remounted
+  when:
+    - process_isolation_live.rc == 0
+    - not (process_isolation_live.stdout is search(process_isolation_live_pattern))
+  vars:
+    process_isolation_live_pattern: >-
+      {{ 'hidepid=(2|invisible)' if process_isolation_hidepid | int == 2
+         else ('hidepid=(1|noaccess)' if process_isolation_hidepid | int == 1
+               else 'hidepid=' ~ process_isolation_hidepid) }}
+  register: process_isolation_remount
+  failed_when: false
+
+- name: Note when /proc could not be remounted (the fstab pin still applies at boot)
+  ansible.builtin.debug:
+    msg: >-
+      Could not remount /proc with hidepid in this environment; the fstab pin
+      applies at the next boot.
+  when: process_isolation_remount.failed | default(false)
+
+# ---- Door 2: ptrace_scope --------------------------------------------------
+
+# Own drop-in, NOT the sysctl_hardening file, so disabling either role leaves
+# the other intact (the per-role sshd drop-in precedent).
+- name: Pin kernel.yama.ptrace_scope in its own drop-in
+  ansible.builtin.copy:
+    dest: "{{ process_isolation_sysctl_dropin }}"
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # Managed by Ansible (process_isolation role). Edit the role, not this file.
+      # Only a direct parent may ptrace a process: without this, anything running
+      # as you can read the memory of your browser, ssh-agent or gpg-agent.
+      kernel.yama.ptrace_scope = 1
+
+# Read-only probe gating the live write: the drop-in above owns the persistent
+# state, so the command only runs when the RUNNING value disagrees — that is
+# what keeps the second pass at changed=0 without a handler.
+- name: Read the running ptrace_scope value
+  ansible.builtin.command: sysctl -n kernel.yama.ptrace_scope
+  register: process_isolation_ptrace_now
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+# Best-effort: a kernel built without Yama has no such key, and that must not
+# fail the play — the drop-in applies wherever the LSM does exist.
+- name: Apply ptrace_scope live when it disagrees (best-effort)
+  ansible.builtin.command: sysctl -q -w kernel.yama.ptrace_scope=1
+  when:
+    - process_isolation_ptrace_now.rc == 0
+    - process_isolation_ptrace_now.stdout | trim != '1'
+  changed_when: true
+  failed_when: false
