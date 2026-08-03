@@ -89,18 +89,18 @@ timer is enabled. The `rkhunter` role added a **Rootkit detection (rkhunter)**
 section with three more: rkhunter installed, the property baseline present,
 and a daily check timer enabled. Every role since has kept the pattern — the
 audit grows a section when site.yml grows a role, so the score always grades
-what the play actually promises (the logrotate create-mode pin and the
-auditd staging are the two most recent). Current score on a freshly
+what the play actually promises (the auditd staging and the home-directory
+sweep are the two most recent). Current score on a freshly
 hardened node:
 
 ```
- Score: 100 PASS, 0 WARN, 0 FAIL  ->  100% compliant
+ Score: 104 PASS, 0 WARN, 0 FAIL  ->  100% compliant
 ```
 
 ## Honesty
 
 This is a lightweight, SSH-and-service-focused checklist, not a full CIS
 Benchmark or a Lynis run. 100% here means "compliant with *these* checks" — it
-doesn't cover auditd, AppArmor,
+doesn't cover AppArmor, partitioning,
 or the dozens of other items a full benchmark grades. It's a useful, honest
 scorecard for the controls this baseline is actually responsible for.

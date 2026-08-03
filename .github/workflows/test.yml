@@ -76,6 +76,20 @@ jobs:
             touch /var/log/dh-rotated.log &&
             printf '/var/log/dh-rotated.log {\n  weekly\n  rotate 2\n  create 0666 root adm\n}\n' > /etc/logrotate.d/dh-rotated"
 
+      # CIS 6.2 offender: an interactive user whose home is 755 — the default
+      # many distros still ship — carrying the two legacy dotfiles that grant
+      # access with no password (.netrc holds cleartext logins, .forward
+      # reroutes mail). The home_permissions role must tighten the mode AND
+      # remove both relics — verify's checks flip from red to green for real.
+      - name: Plant a loose interactive home for home_permissions to tighten
+        run: |
+          docker exec dh-test-node bash -c "
+            useradd --create-home --shell /bin/bash dhhome &&
+            chmod 755 /home/dhhome &&
+            printf 'machine example.com login dh password hunter2\n' > /home/dhhome/.netrc &&
+            printf 'dh@elsewhere.example\n' > /home/dhhome/.forward &&
+            chown dhhome:dhhome /home/dhhome/.netrc /home/dhhome/.forward"
+
       # The CI key doubles as the admin user's key. Written as a vars file
       # because -e key=value can't carry the spaces of an OpenSSH public key.
       - name: Prepare the admin user's public key as a vars file
