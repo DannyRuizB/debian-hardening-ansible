@@ -1,0 +1,66 @@
+---
+# Home directory permissions — mirrors step 29 of harden.sh in the sibling
+# Bash repo (CIS 6.2). A 755 home — still the default on many distros —
+# hands EVERY local account a reading pass over ~/.ssh, ~/.aws, ~/.kube and
+# the shell history with the password someone typed at the wrong prompt.
+# Group-write is worse: a writable ~/.bashrc is code execution as that user
+# at the next login. Interactive means uid >= 1000 with a real shell
+# (system accounts got the system_accounts role), plus root — whose /root
+# ships 700 on Debian and sits below the uid sweep.
+#
+# The probes are read-only and run in --check too; each remediation loops
+# over its probe's results, so a clean second pass stays at changed=0 (the
+# file_permissions pattern). Mode only, ownership untouched: adopting a
+# home to root would break the login it exists for.
+
+# The octal arithmetic lives in bash on purpose: mawk has no and()/strtonum
+# (the logrotate_perms lesson), and $((8#$mode & 8#0027)) says exactly
+# "any group-write or world bit set". if-fi, not `&&`: a trailing home that
+# is already tight must not turn into a non-zero exit for the pipeline.
+- name: Find interactive homes readable or writable beyond owner+group (CIS 6.2)
+  ansible.builtin.shell:
+    cmd: >-
+      set -o pipefail;
+      awk -F: '($3 >= 1000 && $7 !~ /(nologin|false)$/) || $1 == "root"
+      { print $6 }' /etc/passwd | sort -u |
+      while read -r home; do
+        if [ -n "$home" ] && [ -d "$home" ]; then
+          mode=$(stat -c '%a' "$home");
+          if [ $((8#$mode & 8#0027)) -ne 0 ]; then printf '%s\n' "$home"; fi;
+        fi;
+      done
+    executable: /bin/bash
+  register: home_permissions_loose
+  changed_when: false
+  check_mode: false
+
+- name: Strip group-write and all world access from them (750 or tighter)
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: g-w,o-rwx
+  loop: "{{ home_permissions_loose.stdout_lines }}"
+
+- name: Find legacy credential dotfiles in interactive homes
+  ansible.builtin.shell:
+    cmd: >-
+      set -o pipefail;
+      awk -F: '($3 >= 1000 && $7 !~ /(nologin|false)$/) || $1 == "root"
+      { print $6 }' /etc/passwd | sort -u |
+      while read -r home; do
+        if [ -n "$home" ] && [ -d "$home" ]; then
+          for f in {{ home_permissions_legacy_files | join(' ') }}; do
+            if [ -e "$home/$f" ]; then printf '%s\n' "$home/$f"; fi;
+          done;
+        fi;
+      done
+    executable: /bin/bash
+  register: home_permissions_relics
+  changed_when: false
+  check_mode: false
+
+- name: Remove the passwordless-access relics
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop: "{{ home_permissions_relics.stdout_lines }}"

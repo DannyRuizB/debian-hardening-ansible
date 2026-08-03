@@ -443,6 +443,26 @@ on_node grep -Eqs '^max_log_file_action = keep_logs' /etc/audit/auditd.conf \
   && P "audit history is kept, not rotated away (max_log_file_action = keep_logs)" \
   || W "auditd rotates its history away" "pin max_log_file_action = keep_logs (auditd role)"
 
+echo "-- Home directories (CIS 6.2) -------------------------------"
+# A 755 home hands every local account a reading pass over ~/.ssh, ~/.aws
+# and shell history; the legacy dotfiles below grant access with no password
+# at all. Interactive = uid>=1000 with a real shell, plus root.
+loose=$(on_node bash -c 'awk -F: '\''($3 >= 1000 && $7 !~ /(nologin|false)$/) || $1 == "root" { print $6 }'\'' /etc/passwd | while read -r h; do [ -d "$h" ] || continue; m=$(stat -c %a "$h"); [ $((8#$m & 8#0027)) -ne 0 ] && echo "$h=$m"; done; true' | tr '\n' ' ' || true)
+[ -z "$(printf '%s' "$loose" | tr -d ' ')" ] \
+  && P "every interactive home is 750 or tighter (no group-write, no world access)" \
+  || W "interactive homes readable beyond owner+group ($loose)" "chmod g-w,o-rwx on each (home_permissions role)"
+[ "$(on_node stat -c %a /root)" = "700" ] \
+  && P "root's home keeps Debian's 700" \
+  || W "root's home has drifted from 700" "chmod 700 /root (home_permissions role)"
+relics=$(on_node bash -c 'awk -F: '\''($3 >= 1000 && $7 !~ /(nologin|false)$/) || $1 == "root" { print $6 }'\'' /etc/passwd | while read -r h; do for f in .netrc .rhosts .shosts; do [ -e "$h/$f" ] && echo "$h/$f"; done; done; true' | tr '\n' ' ' || true)
+[ -z "$(printf '%s' "$relics" | tr -d ' ')" ] \
+  && P "no .netrc / .rhosts / .shosts credential relics in any interactive home" \
+  || F "passwordless-access relics present: $relics" "remove them (home_permissions role)"
+fwd=$(on_node bash -c 'awk -F: '\''($3 >= 1000 && $7 !~ /(nologin|false)$/) || $1 == "root" { print $6 }'\'' /etc/passwd | while read -r h; do [ -e "$h/.forward" ] && echo "$h/.forward"; done; true' | tr '\n' ' ' || true)
+[ -z "$(printf '%s' "$fwd" | tr -d ' ')" ] \
+  && P "no .forward files silently rerouting mail" \
+  || W ".forward files present: $fwd" "remove them (home_permissions role)"
+
 echo "-- Accounts & files -----------------------------------------"
 on_node getent group sudo | grep -qE ':.*[a-z]' \
   && P "A non-root sudo account exists ($(on_node getent group sudo | sed 's/.*://'))" \

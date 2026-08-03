@@ -693,6 +693,37 @@ done
 expect_line "audit history is kept, not rotated away" '^max_log_file_action = keep_logs$' \
   "sudo grep -E '^max_log_file_action' /etc/audit/auditd.conf"
 
+echo "== Home directory permissions (CIS 6.2) =="
+# The CI plants dhhome with a 755 home plus a .netrc and a .forward before
+# the first pass — these checks flip from red to green because the role did
+# real work, not by vacuum.
+expect_line "the planted 755 home was tightened to 750" '^750$' \
+  "sudo stat -c '%a' /home/dhhome"
+expect_ok "the planted .netrc (cleartext credentials) is gone" \
+  "sudo test ! -e /home/dhhome/.netrc"
+expect_ok "the planted .forward (silent mail redirect) is gone" \
+  "sudo test ! -e /home/dhhome/.forward"
+expect_line "root's home keeps Debian's 700" '^700$' \
+  "sudo stat -c '%a' /root"
+# The whole promise, not just the planted case: no interactive home (uid>=1000
+# with a real shell, plus root) may keep group-write or any world access.
+loosehomes=$(on_node "awk -F: '(\$3 >= 1000 && \$7 !~ /(nologin|false)\$/) || \$1 == \"root\" { print \$6 }' /etc/passwd | while read -r h; do [ -d \"\$h\" ] || continue; m=\$(sudo stat -c '%a' \"\$h\"); [ \$((8#\$m & 8#0027)) -ne 0 ] && echo \"\$h=\$m\"; done; true" 2>/dev/null || true)
+if [ -z "$loosehomes" ]; then
+  pass "every interactive home is 750 or tighter"
+else
+  fail "every interactive home is 750 or tighter (loose: $loosehomes)"
+fi
+# Behavioral: the mode is the lock, not the file's absence. As plain opsadmin
+# (no sudo) the tightened home refuses to open; with sudo it still opens —
+# proving the denial comes from o-rwx, not from a missing directory.
+if on_node "ls /home/dhhome" >/dev/null 2>&1; then
+  fail "another local user cannot list the tightened home (o-rwx at work)"
+else
+  pass "another local user cannot list the tightened home (o-rwx at work)"
+fi
+expect_ok "…while root still can (the denial is the mode, not absence)" \
+  "sudo ls /home/dhhome"
+
 # LAST on purpose: banning the client cuts our own SSH access to the node.
 # Lift the shield installed at the top — from here on we WANT to be bannable.
 docker exec dh-test-node fail2ban-client set sshd delignoreip 172.17.0.1 >/dev/null 2>&1 || true

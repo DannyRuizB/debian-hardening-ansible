@@ -1,0 +1,13 @@
+---
+# Home directory permissions (CIS 6.2) — tunables.
+#
+# The legacy dotfiles that grant access without a password: .netrc stores
+# cleartext logins (and ftp/curl happily read it), .rhosts and .shosts are
+# the rlogin-era trust files that let a named remote user in with no
+# credential at all, and .forward silently ships a user's mail elsewhere.
+# All four are relics; none has a legitimate place on a hardened server.
+home_permissions_legacy_files:
+  - .netrc
+  - .rhosts
+  - .shosts
+  - .forward
