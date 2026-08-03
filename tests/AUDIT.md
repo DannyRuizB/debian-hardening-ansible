@@ -89,12 +89,12 @@ timer is enabled. The `rkhunter` role added a **Rootkit detection (rkhunter)**
 section with three more: rkhunter installed, the property baseline present,
 and a daily check timer enabled. Every role since has kept the pattern — the
 audit grows a section when site.yml grows a role, so the score always grades
-what the play actually promises (the auditd staging and the home-directory
-sweep are the two most recent). Current score on a freshly
+what the play actually promises (the home-directory sweep and the
+process-isolation doors are the two most recent). Current score on a freshly
 hardened node:
 
 ```
- Score: 104 PASS, 0 WARN, 0 FAIL  ->  100% compliant
+ Score: 107 PASS, 0 WARN, 0 FAIL  ->  100% compliant
 ```
 
 ## Honesty

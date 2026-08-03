@@ -1,0 +1,16 @@
+---
+# Process isolation (mirrors step 30 of the Bash twin) — tunables.
+
+# hidepid=2 ("invisible" in modern kernels) hides other users' /proc entries
+# outright; hidepid=1 would still show the directories, and `ps` would still
+# enumerate every PID and its owner. 2 is the useful one.
+process_isolation_hidepid: 2
+
+# An optional group that keeps full visibility — for a monitoring agent that
+# must see the whole process table without running as root. Empty by default:
+# no exception until someone asks for one.
+process_isolation_hidepid_gid: ""
+
+# Own drop-in, NOT the sysctl_hardening file, so disabling either role leaves
+# the other intact (the per-role sshd drop-in precedent).
+process_isolation_sysctl_dropin: /etc/sysctl.d/99-hardening-process.conf
