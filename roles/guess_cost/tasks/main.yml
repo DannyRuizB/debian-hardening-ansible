@@ -1,0 +1,67 @@
+---
+# Guess cost — mirrors step 31 of harden.sh in the sibling Bash repo: every
+# wrong password guess gets expensive, offline and online. The password
+# roles so far decide WHAT a password may be (password_policy), WHEN it
+# must change (account_policies) and how many live misses lock the account
+# (faillock); this one prices the guesses themselves.
+#
+# Offline: yescrypt's cost factor at its maximum makes each attempt against
+# a stolen shadow file cost about a second of CPU instead of milliseconds —
+# the difference between a cracking rig testing millions of candidates and
+# testing a handful. Online: pam_faildelay makes every failed live
+# authentication wait FAIL_DELAY seconds before control returns, so even a
+# guesser that dodges fail2ban (console, su, serial) gets ~12 tries a
+# minute. A correct password pays neither price — libpam only applies the
+# delay when the authentication ultimately fails.
+
+# Both knobs live in login.defs — chpasswd, newusers AND pam_unix read the
+# cost factor from there (verified empirically on the node: a PAM password
+# change also mints a $y$jFT$ hash), and pam_faildelay without inline
+# arguments falls back to FAIL_DELAY. One file, one source of truth.
+- name: Pin the guess-cost knobs in login.defs
+  ansible.builtin.lineinfile:
+    path: /etc/login.defs
+    regexp: '^#?\s*{{ item.key }}\b'
+    line: "{{ item.key }}\t{{ item.value }}"
+  loop:
+    - { key: YESCRYPT_COST_FACTOR, value: "{{ guess_cost_yescrypt_factor }}" }
+    - { key: FAIL_DELAY, value: "{{ guess_cost_fail_delay }}" }
+  loop_control:
+    label: "{{ item.key }}"
+
+# The delay module must sit on the FAILURE path: after pam_unix (so the
+# guess has actually been judged) but before anything that ends the stack —
+# faillock's authfail dies, and Debian's closing pam_deny is requisite. A
+# line appended after those never runs (measured on a stock node: the
+# module was silently dead). Priority 128 puts it exactly there: below
+# pam_unix (256), above faillock's authfail (0).
+- name: Install the pam-auth-update profile (fail delay on the failure path)
+  ansible.builtin.copy:
+    src: hardening-faildelay
+    dest: /usr/share/pam-configs/hardening-faildelay
+    owner: root
+    group: root
+    mode: "0644"
+  register: guess_cost_profile
+
+# Read-only probe so the enable step below runs only when something is
+# actually missing — that's what keeps the second pass at changed=0.
+- name: Check whether pam_faildelay is already wired into common-auth
+  ansible.builtin.command:
+    cmd: grep -q pam_faildelay /etc/pam.d/common-auth
+  register: guess_cost_wired
+  changed_when: false
+  failed_when: guess_cost_wired.rc not in [0, 1]
+  check_mode: false
+
+- name: Wire the profile into common-auth (pam-auth-update)
+  ansible.builtin.command:
+    cmd: pam-auth-update --package --enable hardening-faildelay
+  environment:
+    DEBIAN_FRONTEND: noninteractive
+  # In --check the profile above is not actually written, so enabling it
+  # would wire nothing — the same dry-run trap as the faillock profiles.
+  when:
+    - not ansible_check_mode
+    - guess_cost_profile is changed or guess_cost_wired.rc != 0
+  changed_when: true

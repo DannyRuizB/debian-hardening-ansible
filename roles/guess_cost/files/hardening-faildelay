@@ -1,0 +1,6 @@
+Name: Fail delay — every wrong guess waits (debian-hardening)
+Default: yes
+Priority: 128
+Auth-Type: Primary
+Auth:
+	optional			pam_faildelay.so

@@ -752,6 +752,50 @@ fi
 expect_ok "root still sees the whole process table" \
   "sudo ps -eo user= | sort -u | grep -q '^root$'"
 
+echo "== Guess cost (yescrypt cost factor + fail delay) =="
+expect_line "login.defs pins YESCRYPT_COST_FACTOR 11" '^YESCRYPT_COST_FACTOR[[:space:]]+11$' \
+  grep -E '^YESCRYPT_COST_FACTOR' /etc/login.defs
+expect_line "login.defs pins FAIL_DELAY 5" '^FAIL_DELAY[[:space:]]+5$' \
+  grep -E '^FAIL_DELAY' /etc/login.defs
+# The wiring must sit on the FAILURE path: after pam_unix but before the
+# stack-enders — faillock's authfail dies and the closing pam_deny is
+# requisite, so a delay line below either of those never runs (verified on a
+# stock node: appended after the deny, the delay simply doesn't happen).
+expect_ok "pam_faildelay sits on the failure path (above authfail/deny)" \
+  "grep -v '^#' /etc/pam.d/common-auth | awk '/pam_faildelay/{f=NR} /authfail|pam_deny/{if (!d) d=NR} END{exit !(f && d && f<d)}'"
+# Behavioral: a password minted NOW must carry yescrypt's maximum cost —
+# $y$jFT$ encodes factor 11 where the stock default is $y$j9T$ (factor 5).
+# chpasswd, newusers and a PAM password change all read the pin from
+# login.defs (verified empirically on the node before writing the role).
+on_node "sudo userdel -r cost-probe 2>/dev/null; sudo useradd cost-probe && echo 'cost-probe:Guess#Cost!v8Rt' | sudo chpasswd" >/dev/null 2>&1 || true
+expect_line "a hash minted now carries maximum cost (\$y\$jFT\$...)" '^\$y\$jFT\$' \
+  "sudo getent shadow cost-probe | cut -d: -f2"
+on_node "sudo userdel -r cost-probe" >/dev/null 2>&1 || true
+# Behavioral: time a real failed authentication. The probe's hash is planted
+# directly (usermod -p, sha-512) because a cost-11 yescrypt verification is
+# itself ~1 s in this container and the point is to measure the DELAY, not
+# the hash. Timed inside the node so ssh round-trips don't blur the clock.
+# sshd's PAM stack has no fail delay of its own (login's does), so without
+# the role this same probe fails in ~2.5 s at worst (pam_unix's built-in
+# 2 s, randomized); with FAIL_DELAY 5 the wait lands in 3.75-6.25 s.
+on_node "sudo userdel -r delay-probe 2>/dev/null; sudo useradd -m delay-probe && sudo usermod -p '\$6\$dhguesscost\$YjwtovdqqeRxYMPeCxTdqEPIuJ/f5QyiFIBqX0.Nc1bYIYgjtBo8/HLVv7jAcPvu.P.UQCa0P81cjX81GiBap0' delay-probe && sudo faillock --user delay-probe --reset" >/dev/null 2>&1 || true
+elapsed_fail=$(on_node "start=\$(date +%s%N); printf 'totally-wrong\n' | sudo pamtester sshd delay-probe authenticate >/dev/null 2>&1; end=\$(date +%s%N); echo \$(( (end-start)/1000000 ))" 2>/dev/null || echo 0)
+if [ "${elapsed_fail:-0}" -ge 3000 ]; then
+  pass "a failed authentication pays the fail delay (${elapsed_fail} ms >= 3000)"
+else
+  fail "a failed authentication pays the fail delay (took ${elapsed_fail} ms, expected >= 3000)"
+fi
+# …and the correct password pays neither price: libpam only applies the
+# delay when the authentication ultimately fails.
+ok_result=$(on_node "start=\$(date +%s%N); printf 'Delay#Probe!x7Qz\n' | sudo pamtester sshd delay-probe authenticate >/dev/null 2>&1 && auth=ok || auth=bad; end=\$(date +%s%N); echo \$auth \$(( (end-start)/1000000 ))" 2>/dev/null || echo "bad 999999")
+if [ "$(printf '%s' "$ok_result" | awk '{print $1}')" = ok ] && [ "$(printf '%s' "$ok_result" | awk '{print $2}')" -lt 2500 ]; then
+  pass "the correct password authenticates with no delay ($(printf '%s' "$ok_result" | awk '{print $2}') ms)"
+else
+  fail "the correct password authenticates with no delay (got: $ok_result)"
+fi
+# faillock records live under /run/faillock and survive userdel — reset first.
+on_node "sudo faillock --user delay-probe --reset; sudo userdel -r delay-probe" >/dev/null 2>&1 || true
+
 # LAST on purpose: banning the client cuts our own SSH access to the node.
 # Lift the shield installed at the top — from here on we WANT to be bannable.
 docker exec dh-test-node fail2ban-client set sshd delignoreip 172.17.0.1 >/dev/null 2>&1 || true

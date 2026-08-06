@@ -1,0 +1,12 @@
+---
+# The yescrypt cost factor pinned in login.defs — 11 is the maximum the
+# format accepts (range 1-11; stock Debian mints at 5). Each +1 doubles the
+# work: at 11 a guess against a stolen shadow file costs ~1 s of CPU instead
+# of milliseconds. Only NEW hashes pay it — existing hashes keep the cost
+# they were minted with until the next password change.
+guess_cost_yescrypt_factor: 11
+
+# Seconds a failed live authentication waits before control returns
+# (login.defs FAIL_DELAY). pam_faildelay without inline arguments reads this
+# key, so login.defs stays the single source of truth for both knobs.
+guess_cost_fail_delay: 5
