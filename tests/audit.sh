@@ -477,6 +477,23 @@ on_node grep -Eqs '^[^#[:space:]]+[[:space:]]+/proc[[:space:]].*hidepid=' /etc/f
   && P "ptrace is restricted to direct parents (yama.ptrace_scope=1)" \
   || W "any process can ptrace another of the same user" "set kernel.yama.ptrace_scope=1 (process_isolation role)"
 
+echo "-- Guess cost (hash cost factor + fail delay) ----------------"
+# A stolen shadow file is cracked at the speed of one hash evaluation and a
+# live prompt is guessed at the speed of one round-trip — both are knobs.
+ycf=$(ld YESCRYPT_COST_FACTOR)
+[ "$ycf" = "11" ] \
+  && P "yescrypt cost factor at maximum (a guess against a stolen hash costs ~1 s)" \
+  || W "yescrypt cost factor is ${ycf:-unset} (stock 5: milliseconds per guess)" "set YESCRYPT_COST_FACTOR 11 in login.defs (guess_cost role)"
+fd=$(ld FAIL_DELAY)
+if [ -n "$fd" ] && [ "$fd" -ge 4 ] 2>/dev/null; then
+  P "failed logins wait ${fd} s before returning (online guessing throttled)"
+else
+  W "FAIL_DELAY is ${fd:-unset}" "set FAIL_DELAY 5 in login.defs (guess_cost role)"
+fi
+on_node grep -q pam_faildelay /etc/pam.d/common-auth \
+  && P "pam_faildelay is wired into the auth stack" \
+  || W "pam_faildelay not wired into common-auth" "enable the hardening-faildelay profile (guess_cost role)"
+
 echo "-- Accounts & files -----------------------------------------"
 on_node getent group sudo | grep -qE ':.*[a-z]' \
   && P "A non-root sudo account exists ($(on_node getent group sudo | sed 's/.*://'))" \

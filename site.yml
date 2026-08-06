@@ -47,3 +47,6 @@
     # Process isolation last: it touches /proc and a sysctl of its own, so it
     # is out of the way of the /var/log sweep ordering rule above.
     - process_isolation
+    # Guess cost touches login.defs and PAM only — nothing under /var/log,
+    # so running after the sweep is safe. Mirrors step 31 in the Bash twin.
+    - guess_cost

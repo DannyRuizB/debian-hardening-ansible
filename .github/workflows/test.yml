@@ -102,6 +102,17 @@ jobs:
             findmnt -no OPTIONS /proc &&
             sysctl -n kernel.yama.ptrace_scope"
 
+      # Guess-cost offenders: the two knobs pinned to their WEAK values — an
+      # explicit cost factor 5 (what stock yescrypt uses implicitly) and
+      # FAIL_DELAY 0. The stock file carries NEITHER key, so planting them
+      # forces the role through its reconcile path (lineinfile replaces, not
+      # appends) and the checks flip red→green over real drift.
+      - name: Plant weak guess-cost values for guess_cost to reconcile
+        run: |
+          docker exec dh-test-node bash -c "
+            printf 'YESCRYPT_COST_FACTOR\t5\nFAIL_DELAY\t0\n' >> /etc/login.defs &&
+            grep -E '^(YESCRYPT_COST_FACTOR|FAIL_DELAY)' /etc/login.defs"
+
       # The CI key doubles as the admin user's key. Written as a vars file
       # because -e key=value can't carry the spaces of an OpenSSH public key.
       - name: Prepare the admin user's public key as a vars file
