@@ -494,6 +494,39 @@ on_node grep -q pam_faildelay /etc/pam.d/common-auth \
   && P "pam_faildelay is wired into the auth stack" \
   || W "pam_faildelay not wired into common-auth" "enable the hardening-faildelay profile (guess_cost role)"
 
+echo "-- Root PATH integrity (CIS 6.2.8) ---------------------------"
+# Whoever can write to a directory early in root's PATH chooses what root
+# runs. Three sources set it on Debian and they do not agree: login.defs is
+# what CIS names, /etc/profile is what actually wins for a login shell, and
+# /etc/crontab is what root's scheduled jobs get.
+# `stat -Lc` on purpose: /bin and /sbin are symlinks (always mode 777), so a
+# naive check would flag every stock Debian.
+path_problems() {  # $1 = a PATH string; echoes the offending entries
+  on_node bash -c "printf '%s' '$1' | tr ':' '\n' | while IFS= read -r d; do
+      [ -z \"\$d\" ] && { echo 'empty'; continue; }
+      case \"\$d\" in /*) ;; *) echo \"relative:\$d\"; continue;; esac
+      [ -d \"\$d\" ] || { echo \"missing:\$d\"; continue; }
+      m=\$(stat -Lc %a \"\$d\"); case \"\$m\" in *[2367]) echo \"loose:\$d(\$m)\";; esac
+    done; true"
+}
+supath=$(on_node awk '$1=="ENV_SUPATH"{sub(/^[^=]*=/, "", $2); print $2; exit}' /etc/login.defs)
+sup_bad=$(path_problems "$supath" | tr '\n' ' ')
+[ -z "$(printf '%s' "$sup_bad" | tr -d ' ')" ] \
+  && P "login.defs ENV_SUPATH is free of unsafe entries" \
+  || W "ENV_SUPATH has unsafe entries: $sup_bad" "drop empty/relative/writable entries (root_path role)"
+prof_bad=""
+while IFS= read -r p; do
+  [ -n "$p" ] || continue
+  prof_bad="$prof_bad$(path_problems "$p" | tr '\n' ' ')"
+done <<< "$(on_node bash -c "grep -hoE '^[[:space:]]*PATH=\"[^\"]*\"' /etc/profile | sed 's/.*PATH=\"//; s/\"\$//'")"
+[ -z "$(printf '%s' "$prof_bad" | tr -d ' ')" ] \
+  && P "/etc/profile PATH lines are free of unsafe entries (the file that wins)" \
+  || F "/etc/profile PATH has unsafe entries: $prof_bad" "sanitize the PATH lines (root_path role)"
+cron_bad=$(path_problems "$(on_node awk -F= '$1=="PATH"{print $2; exit}' /etc/crontab)" | tr '\n' ' ')
+[ -z "$(printf '%s' "$cron_bad" | tr -d ' ')" ] \
+  && P "/etc/crontab PATH is free of unsafe entries (root's cron jobs)" \
+  || W "/etc/crontab PATH has unsafe entries: $cron_bad" "sanitize PATH= in /etc/crontab (root_path role)"
+
 echo "-- Accounts & files -----------------------------------------"
 on_node getent group sudo | grep -qE ':.*[a-z]' \
   && P "A non-root sudo account exists ($(on_node getent group sudo | sed 's/.*://'))" \

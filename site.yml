@@ -50,3 +50,7 @@
     # Guess cost touches login.defs and PAM only — nothing under /var/log,
     # so running after the sweep is safe. Mirrors step 31 in the Bash twin.
     - guess_cost
+    # Root PATH last: it tightens directory modes, and it must run AFTER
+    # file_permissions — that role sets the sticky bit on world-writable
+    # directories, and this one then removes their write bits. Mirrors step 32.
+    - root_path
