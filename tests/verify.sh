@@ -796,6 +796,85 @@ fi
 # faillock records live under /run/faillock and survive userdel — reset first.
 on_node "sudo faillock --user delay-probe --reset; sudo userdel -r delay-probe" >/dev/null 2>&1 || true
 
+echo "== Root PATH integrity (CIS 6.2.8) =="
+# The CI plants offenders in ALL THREE sources that set root's PATH on Debian,
+# so every check below flips from red to green because the role did the work.
+#
+# `stat -Lc`, not `stat -c`: on any modern Debian /bin and /sbin are SYMLINKS
+# into /usr (usrmerge) and a symlink is always mode 777 — the naive check
+# reports every stock system as having world-writable PATH directories. This
+# is the trap that shaped the whole step.
+unsafe_path_entries() {  # prints one line per unsafe entry of the PATH given
+  on_node "printf '%s' '$1' | tr ':' '\n' | while IFS= read -r d; do
+      [ -z \"\$d\" ] && { echo 'EMPTY'; continue; }
+      case \"\$d\" in /*) ;; *) echo \"RELATIVE \$d\"; continue;; esac
+      [ -d \"\$d\" ] || { echo \"MISSING \$d\"; continue; }
+      m=\$(sudo stat -Lc %a \"\$d\"); case \"\$m\" in *[2367]) echo \"LOOSE \$d \$m\";; esac
+    done; true" 2>/dev/null
+}
+
+supath=$(on_node "awk '\$1==\"ENV_SUPATH\"{sub(/^[^=]*=/, \"\", \$2); print \$2; exit}' /etc/login.defs" 2>/dev/null || true)
+bad=$(unsafe_path_entries "$supath")
+if [ -z "$bad" ] && [ -n "$supath" ]; then
+  pass "login.defs ENV_SUPATH has no unsafe entries"
+else
+  fail "login.defs ENV_SUPATH has no unsafe entries (found: $(printf '%s' "$bad" | tr '\n' ' '))"
+fi
+
+profile_paths=$(on_node "grep -hoE '^[[:space:]]*PATH=\"[^\"]*\"' /etc/profile | sed 's/.*PATH=\"//; s/\"\$//'" 2>/dev/null || true)
+bad=""
+while IFS= read -r p; do
+  [ -n "$p" ] || continue
+  bad="$bad$(unsafe_path_entries "$p")"
+done <<< "$profile_paths"
+if [ -z "$bad" ] && [ -n "$profile_paths" ]; then
+  pass "/etc/profile PATH lines have no unsafe entries (this is the file that WINS)"
+else
+  fail "/etc/profile PATH lines have no unsafe entries (found: $(printf '%s' "$bad" | tr '\n' ' '))"
+fi
+
+cronpath=$(on_node "awk -F= '\$1==\"PATH\"{print \$2; exit}' /etc/crontab" 2>/dev/null || true)
+bad=$(unsafe_path_entries "$cronpath")
+if [ -z "$bad" ]; then
+  pass "/etc/crontab PATH has no unsafe entries (root's scheduled jobs)"
+else
+  fail "/etc/crontab PATH has no unsafe entries (found: $(printf '%s' "$bad" | tr '\n' ' '))"
+fi
+
+# The step treats two kinds of offender differently, and that distinction IS
+# the promise: a FIXABLE entry is fixed and KEPT (deleting a directory the
+# admin put in the PATH would break every locally installed binary), an
+# UNFIXABLE one is dropped. This is also where the Bash twin's own bug was caught:
+# sanitizing the lists before tightening the modes deleted /usr/local/bin
+# from the PATH instead of fixing it.
+expect_line "a loose directory was tightened, not deleted from the PATH" '/opt/dh-path-loose' \
+  "grep -hoE '^[[:space:]]*PATH=\"[^\"]*\"' /etc/profile | head -1"
+# Asserting the WRITE bits, not a literal mode: the sticky bit these dirs
+# carry comes from step 20 (it sets +t on world-writable directories, which
+# these were when planted), so the honest end state is 1755, not 755. What
+# matters for a PATH hijack is that group and other cannot write.
+expect_ok "…and it is no longer writable by anyone but root" \
+  "test \$(( 8#\$(sudo stat -Lc %a /opt/dh-path-loose) & 8#0022 )) -eq 0"
+expect_ok "the loosened /usr/local/bin also survived, tightened" \
+  "test \$(( 8#\$(sudo stat -Lc %a /usr/local/bin) & 8#0022 )) -eq 0"
+expect_ok "the entry that could NOT be fixed (a missing directory) is gone" \
+  "! grep -q dh-path-gone /etc/login.defs /etc/profile /etc/crontab"
+
+# Behavioral, and the whole point: the PATH a real root login actually gets.
+# `sudo -i printenv PATH` asks the login shell itself instead of echoing a
+# variable — an unescaped $PATH would be expanded by the OUTER non-login
+# shell before ever reaching the login shell (the step-13 trap).
+effective=$(on_node "sudo -i printenv PATH" 2>/dev/null || true)
+case ":$effective:" in
+  *::*|*:.:*|*dh-path-gone*)
+    fail "a real root login shell gets a clean PATH (got: $effective)" ;;
+  *)
+    pass "a real root login shell gets a clean PATH ($effective)" ;;
+esac
+# And the symlinks were left alone: chmod on /bin would have changed the LINK.
+expect_line "/bin is still an untouched symlink (never chmod'ed)" '^lrwxrwxrwx$' \
+  "stat -c %A /bin"
+
 # LAST on purpose: banning the client cuts our own SSH access to the node.
 # Lift the shield installed at the top — from here on we WANT to be bannable.
 docker exec dh-test-node fail2ban-client set sshd delignoreip 172.17.0.1 >/dev/null 2>&1 || true

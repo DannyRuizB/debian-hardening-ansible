@@ -113,6 +113,28 @@ jobs:
             printf 'YESCRYPT_COST_FACTOR\t5\nFAIL_DELAY\t0\n' >> /etc/login.defs &&
             grep -E '^(YESCRYPT_COST_FACTOR|FAIL_DELAY)' /etc/login.defs"
 
+      # Root-PATH offenders in ALL THREE sources that set root's PATH on
+      # Debian (login.defs, /etc/profile — which OVERWRITES login.defs for
+      # login shells — and /etc/crontab). Two kinds on purpose, because the
+      # role treats them differently and that distinction IS the promise:
+      #   - fixable: /opt/dh-path-loose (exists, world-writable) and a
+      #     loosened /usr/local/bin must come back TIGHTENED and still in the
+      #     PATH (deleting them would break locally installed binaries);
+      #   - unfixable: an empty entry (= the current directory), a bare '.',
+      #     and /opt/dh-path-gone which does not exist — these must vanish.
+      - name: Plant PATH traps for root_path to sanitize
+        run: |
+          docker exec -i dh-test-node bash -s <<'SH'
+          install -d -m 777 /opt/dh-path-loose
+          chmod 777 /usr/local/bin
+          dirty='/opt/dh-path-loose:/opt/dh-path-gone:/usr/local/sbin::/usr/local/bin:.:/usr/sbin:/usr/bin'
+          sed -i "s|^ENV_SUPATH.*|ENV_SUPATH\tPATH=$dirty|" /etc/login.defs
+          sed -i "5s|PATH=\"[^\"]*\"|PATH=\"$dirty:\"|" /etc/profile
+          sed -i "s|^PATH=.*|PATH=$dirty|" /etc/crontab
+          grep -E '^ENV_SUPATH' /etc/login.defs
+          sed -n 5p /etc/profile
+          SH
+
       # The CI key doubles as the admin user's key. Written as a vars file
       # because -e key=value can't carry the spaces of an OpenSSH public key.
       - name: Prepare the admin user's public key as a vars file

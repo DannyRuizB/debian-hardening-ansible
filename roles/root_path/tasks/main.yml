@@ -1,0 +1,139 @@
+---
+# Root PATH integrity — mirrors step 32 of harden.sh in the sibling Bash repo:
+# CIS 6.2.8. Every command root types is looked up along PATH in order, so
+# whoever can write to a directory early in that list chooses what root
+# actually runs. An empty entry (`::`, or a leading/trailing colon) means "the
+# current directory": root cd's into /tmp, types `ls`, and runs whatever a
+# local user left there named ls.
+#
+# THREE SOURCES, verified on the node before writing this (see the Bash twin):
+#   1. login.defs ENV_SUPATH / ENV_PATH — a real login, `su -` from a user.
+#   2. /etc/profile — OVERWRITES login.defs for every login shell with a
+#      literal PATH="..." per uid branch. It wins, and it is what an admin
+#      actually sees.
+#   3. /etc/crontab PATH= — root's scheduled jobs; the other two never reach.
+#
+# FIX-THEN-DROP: a directory that exists but is group/world-writable gets its
+# mode tightened and STAYS in the PATH (deleting a directory the admin put
+# there would break every locally installed binary); only the unfixable
+# entries — empty, relative, missing — are dropped. Doing it the other way
+# round was a real bug in the Bash twin while it was written.
+
+# One read-only probe answers everything: it walks the entries of all three
+# sources and reports, per entry, whether it is unsafe and why. Running it in
+# check mode too (check_mode: false) is what lets --check report honestly, and
+# the remediation below loops over its output so a clean second pass stays at
+# changed=0 (the file_permissions / log_permissions pattern).
+#
+# `stat -Lc`, never `stat -c`: on any modern Debian /bin and /sbin are
+# SYMLINKS into /usr (usrmerge) and a symlink is always mode 777 — the naive
+# check reports every stock system as broken, and a chmod on /bin would
+# change the LINK, not the directory.
+- name: Inspect every entry of root's PATH sources
+  ansible.builtin.shell:
+    executable: /bin/bash
+    cmd: |
+      set -u -o pipefail
+      supath=$(awk '$1=="ENV_SUPATH"{sub(/^[^=]*=/, "", $2); print $2; exit}' {{ root_path_login_defs }})
+      envpath=$(awk '$1=="ENV_PATH"{sub(/^[^=]*=/, "", $2); print $2; exit}' {{ root_path_login_defs }})
+      profpaths=$(grep -hoE '^[[:space:]]*PATH="[^"]*"' {{ root_path_profile }} 2>/dev/null | sed 's/.*PATH="//; s/"$//' || true)
+      cronpath=$(awk -F= '$1=="PATH"{print $2; exit}' {{ root_path_crontab }} 2>/dev/null)
+      printf '%s\n%s\n%s\n%s\n' "$supath" "$envpath" "$profpaths" "$cronpath" \
+        | tr ':' '\n' | sort -u | while IFS= read -r d; do
+            [ -z "$d" ] && continue
+            case "$d" in /*) ;; *) continue;; esac
+            [ -d "$d" ] || continue
+            m=$(stat -Lc %a "$d" 2>/dev/null) || continue
+            # Only the write bits matter for a hijack; the sticky bit that the
+            # file_permissions role may have set is irrelevant here.
+            if [ "$(( 8#$m & 8#0022 ))" -ne 0 ]; then
+              printf '%s\n' "$(readlink -f "$d")"
+            fi
+          done
+      true
+  register: root_path_loose_dirs
+  changed_when: false
+  check_mode: false
+
+# The directories FIRST: fix what can be fixed, so the sanitizing step below
+# has nothing left to drop for them. Modes only — never ownership: adopting a
+# distro directory would be worse than the problem.
+- name: Remove group/other write permission from directories in root's PATH
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: g-w,o-w
+  loop: "{{ root_path_loose_dirs.stdout_lines | unique }}"
+  when: root_path_loose_dirs.stdout_lines | length > 0
+
+# Now the lists. Each source keeps whatever the admin put there and loses only
+# the entries that cannot be made safe. The sanitizing itself is one shell
+# pass per file so the "unsafe entry" rule lives in exactly one place; it
+# reports changed only when it actually rewrote something.
+- name: Drop unsafe entries from the three PATH sources
+  ansible.builtin.shell:
+    executable: /bin/bash
+    cmd: |
+      set -u -o pipefail
+      changed=0
+
+      clean() {  # $1 = PATH string -> prints it without unsafe entries
+        out=""
+        IFS=':'
+        set -f
+        for e in $1; do
+          [ -z "$e" ] && continue
+          case "$e" in /*) ;; *) continue;; esac
+          [ -d "$e" ] || continue
+          m=$(stat -Lc %a "$e" 2>/dev/null) || continue
+          [ "$(( 8#$m & 8#0022 ))" -ne 0 ] && continue
+          if [ -z "$out" ]; then out="$e"; else out="$out:$e"; fi
+        done
+        set +f
+        unset IFS
+        printf '%s' "$out"
+      }
+
+      for key in ENV_SUPATH ENV_PATH; do
+        cur=$(awk -v k="$key" '$1==k{sub(/^[^=]*=/, "", $2); print $2; exit}' {{ root_path_login_defs }})
+        [ -n "$cur" ] || continue
+        new=$(clean "$cur")
+        [ -n "$new" ] || continue
+        if [ "$new" != "$cur" ]; then
+          sed -i "s|^${key}[[:space:]].*|${key}\tPATH=${new}|" {{ root_path_login_defs }}
+          changed=1
+        fi
+      done
+
+      if [ -f {{ root_path_profile }} ]; then
+        for ln in $(grep -nE '^[[:space:]]*PATH="[^"]*"' {{ root_path_profile }} | cut -d: -f1 || true); do
+          cur=$(sed -n "${ln}p" {{ root_path_profile }} | sed 's/.*PATH="//; s/"$//')
+          new=$(clean "$cur")
+          [ -n "$new" ] || continue
+          if [ "$new" != "$cur" ]; then
+            sed -i "${ln}s|PATH=\"[^\"]*\"|PATH=\"${new}\"|" {{ root_path_profile }}
+            changed=1
+          fi
+        done
+      fi
+
+      if [ -f {{ root_path_crontab }} ]; then
+        cur=$(awk -F= '$1=="PATH"{print $2; exit}' {{ root_path_crontab }})
+        if [ -n "$cur" ]; then
+          new=$(clean "$cur")
+          if [ -n "$new" ] && [ "$new" != "$cur" ]; then
+            sed -i "s|^PATH=.*|PATH=${new}|" {{ root_path_crontab }}
+            changed=1
+          fi
+        fi
+      fi
+
+      [ "$changed" -eq 1 ] && echo REWROTE
+      true
+  register: root_path_sanitized
+  changed_when: "'REWROTE' in root_path_sanitized.stdout"
+  # In --check the tightening above has not run, so a loose directory would
+  # still look unsafe and this would report a rewrite it will not make on the
+  # real run. Skipping keeps --check honest instead of noisy — the same guard
+  # the aide and faillock roles use for their own ordering problems.
+  when: not ansible_check_mode

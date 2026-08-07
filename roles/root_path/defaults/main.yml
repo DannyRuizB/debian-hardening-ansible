@@ -1,0 +1,8 @@
+---
+# Sources that set root's PATH on Debian. All three are sanitized with the
+# same rule, because pinning only login.defs is a hollow promise: /etc/profile
+# OVERWRITES it for every login shell (that is the PATH an admin actually
+# sees) and /etc/crontab has its own, which is what root's scheduled jobs get.
+root_path_login_defs: /etc/login.defs
+root_path_profile: /etc/profile
+root_path_crontab: /etc/crontab
