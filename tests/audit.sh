@@ -527,6 +527,18 @@ cron_bad=$(path_problems "$(on_node awk -F= '$1=="PATH"{print $2; exit}' /etc/cr
   && P "/etc/crontab PATH is free of unsafe entries (root's cron jobs)" \
   || W "/etc/crontab PATH has unsafe entries: $cron_bad" "sanitize PATH= in /etc/crontab (root_path role)"
 
+echo "-- Apt updater sandboxing (systemd) -------------------------"
+on_node systemctl show apt-daily-upgrade.service -p NoNewPrivileges 2>/dev/null | grep -q '^NoNewPrivileges=yes$' \
+  && P "apt updater runs with NoNewPrivileges" \
+  || W "apt updater has no NoNewPrivileges" "add a systemd sandboxing drop-in (apt_sandboxing role)"
+# The anti-lesson, audited too: these two flags MUST stay off or apt breaks.
+on_node systemctl show apt-daily-upgrade.service -p ProtectSystem 2>/dev/null | grep -qE '^ProtectSystem=(full|strict)$' \
+  && W "apt updater has ProtectSystem set — dpkg cannot write /usr" "remove ProtectSystem from the drop-in (measured to break apt)" \
+  || P "apt updater leaves ProtectSystem off (dpkg must write /usr)"
+on_node systemctl show apt-daily-upgrade.service -p RestrictSUIDSGID 2>/dev/null | grep -q '^RestrictSUIDSGID=yes$' \
+  && W "apt updater has RestrictSUIDSGID — cannot install setuid binaries" "remove RestrictSUIDSGID from the drop-in (measured to break apt)" \
+  || P "apt updater leaves RestrictSUIDSGID off (dpkg installs setuid bins)"
+
 echo "-- Accounts & files -----------------------------------------"
 on_node getent group sudo | grep -qE ':.*[a-z]' \
   && P "A non-root sudo account exists ($(on_node getent group sudo | sed 's/.*://'))" \

@@ -1,0 +1,44 @@
+---
+# Apt updater sandboxing — mirrors step 33 of harden.sh in the sibling Bash
+# repo. A hardening drop-in for the apt-daily-upgrade unit: the unattended
+# updater runs on a timer, as root, and reaches out to the network to pull
+# and install packages — a foothold worth boxing in, exactly like fail2ban
+# (service_sandboxing role).
+#
+# But apt is the ANTI-sandbox workload, and the interesting part is what it
+# will NOT tolerate — both measured on the node before writing this role:
+#   * ProtectSystem=full/strict breaks it: dpkg writes /usr, /boot, /etc on
+#     every install. (service_sandboxing tolerated ProtectSystem=full with a
+#     ReadWritePaths carve-out for fail2ban — apt tolerates none at all.)
+#   * RestrictSUIDSGID=true breaks it: dpkg installs setuid binaries (passwd,
+#     sudo, mount). Reinstalling passwd under it fails with dpkg status 100.
+# So the shipped set is only the process-level confinement that cannot collide
+# with installing packages: NoNewPrivileges, PrivateTmp, ProtectHome,
+# ProtectControlGroups. Measured: apt-daily-upgrade runs to Result=success
+# under exactly this set, including a setuid-package reinstall.
+
+- name: Ensure the apt-daily-upgrade drop-in directory exists
+  ansible.builtin.file:
+    path: /etc/systemd/system/apt-daily-upgrade.service.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Sandbox the apt updater (systemd drop-in)
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/apt-daily-upgrade.service.d/99-hardening.conf
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # Managed by Ansible (apt_sandboxing role). Edit the role, not this file.
+      # ONLY process-level flags that cannot collide with installing packages:
+      # NO ProtectSystem (dpkg writes /usr) and NO RestrictSUIDSGID (dpkg
+      # installs setuid binaries) — both measured to break apt.
+      [Service]
+      NoNewPrivileges=true
+      PrivateTmp=true
+      ProtectHome=true
+      ProtectControlGroups=true
+  notify: Reload systemd for the apt sandbox

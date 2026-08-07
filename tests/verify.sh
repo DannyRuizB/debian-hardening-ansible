@@ -875,6 +875,25 @@ esac
 expect_line "/bin is still an untouched symlink (never chmod'ed)" '^lrwxrwxrwx$' \
   "stat -c %A /bin"
 
+echo "== Step 33: apt updater sandboxing (systemd) =="
+# Ask systemd for the EFFECTIVE properties of the apt-daily-upgrade unit — a
+# drop-in is only real if the manager applied it (a oneshot reports its
+# configured sandbox even while inactive).
+expect_line "apt updater runs with NoNewPrivileges" "^NoNewPrivileges=yes$" \
+  "sudo systemctl show apt-daily-upgrade.service -p NoNewPrivileges"
+expect_line "apt updater has a private /tmp" "^PrivateTmp=yes$" \
+  "sudo systemctl show apt-daily-upgrade.service -p PrivateTmp"
+expect_line "apt updater has ProtectHome" "^ProtectHome=yes$" \
+  "sudo systemctl show apt-daily-upgrade.service -p ProtectHome"
+# The two flags that MUST stay off, or apt breaks — the lesson of the step,
+# asserted so a well-meaning edit that adds them gets caught. ProtectSystem
+# would make /usr read-only (dpkg can't install); RestrictSUIDSGID blocks
+# installing setuid binaries (measured: passwd reinstall fails with status 100).
+expect_line "apt updater does NOT set ProtectSystem (dpkg must write /usr)" "^ProtectSystem=no$" \
+  "sudo systemctl show apt-daily-upgrade.service -p ProtectSystem"
+expect_line "apt updater does NOT set RestrictSUIDSGID (dpkg installs setuid bins)" "^RestrictSUIDSGID=no$" \
+  "sudo systemctl show apt-daily-upgrade.service -p RestrictSUIDSGID"
+
 # LAST on purpose: banning the client cuts our own SSH access to the node.
 # Lift the shield installed at the top — from here on we WANT to be bannable.
 docker exec dh-test-node fail2ban-client set sshd delignoreip 172.17.0.1 >/dev/null 2>&1 || true

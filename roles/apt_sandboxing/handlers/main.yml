@@ -1,0 +1,10 @@
+---
+# A oneshot updater is not "restarted" like a daemon — the drop-in takes
+# effect on the unit's next timer run. Just reload the manager so the new
+# confinement is picked up. NO check_mode guard needed: daemon-reload works
+# even on a virgin node (unlike the fail2ban restart, which needs the service
+# installed), and apt-daily-upgrade.service ships with the apt package, so it
+# always exists.
+- name: Reload systemd for the apt sandbox
+  ansible.builtin.systemd:
+    daemon_reload: true
