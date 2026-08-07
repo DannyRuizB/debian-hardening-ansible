@@ -54,3 +54,6 @@
     # file_permissions — that role sets the sticky bit on world-writable
     # directories, and this one then removes their write bits. Mirrors step 32.
     - root_path
+    # Apt updater sandboxing: a systemd drop-in, touches neither /var/log nor
+    # anything an earlier role owns, so its position is free. Mirrors step 33.
+    - apt_sandboxing
