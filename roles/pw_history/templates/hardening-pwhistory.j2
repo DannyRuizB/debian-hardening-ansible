@@ -1,0 +1,6 @@
+Name: Password history — no coming back to an old one (debian-hardening)
+Default: yes
+Priority: 512
+Password-Type: Primary
+Password:
+	requisite			pam_pwhistory.so remember={{ pw_history_remember }} use_authtok enforce_for_root

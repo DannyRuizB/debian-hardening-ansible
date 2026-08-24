@@ -539,6 +539,20 @@ on_node systemctl show apt-daily-upgrade.service -p RestrictSUIDSGID 2>/dev/null
   && W "apt updater has RestrictSUIDSGID — cannot install setuid binaries" "remove RestrictSUIDSGID from the drop-in (measured to break apt)" \
   || P "apt updater leaves RestrictSUIDSGID off (dpkg installs setuid bins)"
 
+echo "-- Password history (CIS 5.3.3) -----------------------------"
+remember=$(on_node bash -c "grep -v '^#' /etc/pam.d/common-password | grep -o 'pam_pwhistory\.so.*' | grep -o 'remember=[0-9]*' | cut -d= -f2" 2>/dev/null || true)
+[ -n "$remember" ] && [ "$remember" -ge 24 ] 2>/dev/null \
+  && P "password history enforced (pam_pwhistory remember=$remember)" \
+  || W "old passwords can be reused (remember=${remember:-unset})" "enable pam_pwhistory with remember=24 (pw_history role)"
+# Measured both ways: without enforce_for_root a reuse performed by root —
+# chpasswd included — prints the warning and goes through anyway.
+on_node bash -c "grep -v '^#' /etc/pam.d/common-password | grep pam_pwhistory | grep -q enforce_for_root" 2>/dev/null \
+  && P "history binds root too (enforce_for_root — chpasswd resets included)" \
+  || W "root bypasses the history check" "add enforce_for_root to pam_pwhistory (pw_history role)"
+on_node stat -c '%a %U %G' /etc/security/opasswd 2>/dev/null | grep -q '^600 root root$' \
+  && P "opasswd is root:root 0600 (it stores password hashes)" \
+  || W "opasswd is loose or missing" "install root:root 0600 /etc/security/opasswd (pw_history role)"
+
 echo "-- Accounts & files -----------------------------------------"
 on_node getent group sudo | grep -qE ':.*[a-z]' \
   && P "A non-root sudo account exists ($(on_node getent group sudo | sed 's/.*://'))" \

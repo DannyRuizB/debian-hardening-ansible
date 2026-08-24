@@ -135,6 +135,25 @@ jobs:
           sed -n 5p /etc/profile
           SH
 
+      # pw_history offenders: a LAX profile (remember=3, and no
+      # enforce_for_root — measured: without it a reuse performed by root
+      # prints the warning and goes through anyway) plus a loosened opasswd.
+      # The stock system carries no profile at all, so planting one forces
+      # the role through its overwrite path, and 0644 on a file of password
+      # hashes is exactly the drift the mode pin must undo.
+      - name: Plant a lax password-history profile for pw_history to overwrite
+        run: |
+          docker exec -i dh-test-node bash -s <<'SH'
+          {
+            printf 'Name: Password history (lax)\nDefault: yes\nPriority: 512\n'
+            printf 'Password-Type: Primary\nPassword:\n'
+            printf '\trequisite\t\t\tpam_pwhistory.so remember=3 use_authtok\n'
+          } > /usr/share/pam-configs/hardening-pwhistory
+          chmod 644 /etc/security/opasswd
+          stat -c '%a' /etc/security/opasswd
+          cat /usr/share/pam-configs/hardening-pwhistory
+          SH
+
       # The CI key doubles as the admin user's key. Written as a vars file
       # because -e key=value can't carry the spaces of an OpenSSH public key.
       - name: Prepare the admin user's public key as a vars file
