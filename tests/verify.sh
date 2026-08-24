@@ -894,6 +894,42 @@ expect_line "apt updater does NOT set ProtectSystem (dpkg must write /usr)" "^Pr
 expect_line "apt updater does NOT set RestrictSUIDSGID (dpkg installs setuid bins)" "^RestrictSUIDSGID=no$" \
   "sudo systemctl show apt-daily-upgrade.service -p RestrictSUIDSGID"
 
+echo "== Step 34: password history (pam_pwhistory) =="
+expect_line "the pwhistory profile pins remember=24 with root enforced" 'pam_pwhistory\.so remember=24 use_authtok enforce_for_root' \
+  grep pam_pwhistory /usr/share/pam-configs/hardening-pwhistory
+expect_line "pam_pwhistory is wired into common-password" 'pam_pwhistory\.so remember=24' \
+  "grep -v '^#' /etc/pam.d/common-password | grep pam_pwhistory"
+# Position (the profile's Priority 512 decides it): strength first, history
+# second, and only then the module that actually lands the change — a
+# history line BELOW pam_unix would be consulted after the fact.
+expect_ok "pwhistory sits between pwquality and pam_unix (strength, history, change)" \
+  "grep -v '^#' /etc/pam.d/common-password | awk '/pam_pwquality/{q=NR} /pam_pwhistory/{h=NR} /pam_unix/{u=NR} END{exit !(q && h && u && q<h && h<u)}'"
+# opasswd stores password HASHES — shadow-grade sensitivity.
+expect_line "opasswd exists as root:root 0600 (it holds password hashes)" '^600 root root$' \
+  "sudo stat -c '%a %U %G' /etc/security/opasswd"
+# Behavioral crown: change, change again, try to come BACK — refused; a
+# genuinely new password still lands (the gate refuses reuse, not change).
+# All through pamtester chauthtok as root, which is exactly the chpasswd
+# path (measured before writing the step: chpasswd traverses this stack).
+on_node "sudo userdel -r hist-probe 2>/dev/null; sudo sed -i '/^hist-probe:/d' /etc/security/opasswd; sudo useradd -m hist-probe" >/dev/null 2>&1 || true
+expect_ok "a first password change is recorded in the history" \
+  "printf 'Xkr9-Vega-Lumbre-71\nXkr9-Vega-Lumbre-71\n' | sudo pamtester passwd hist-probe chauthtok"
+expect_ok "a second change moves the account forward" \
+  "printf 'Brumal-Cedro-904-Yq\nBrumal-Cedro-904-Yq\n' | sudo pamtester passwd hist-probe chauthtok"
+reuse_out=$(on_node "printf 'Xkr9-Vega-Lumbre-71\nXkr9-Vega-Lumbre-71\n' | sudo pamtester passwd hist-probe chauthtok 2>&1" 2>/dev/null; echo "rc=$?")
+if printf '%s' "$reuse_out" | grep -q 'rc=0'; then
+  fail "coming back to an old password must be refused (the change went through)"
+else
+  if printf '%s' "$reuse_out" | grep -q 'already been used\|has been already used'; then
+    pass "coming back to an old password is refused, and for the right reason"
+  else
+    fail "reuse was refused but not by pwhistory (got: $(printf '%s' "$reuse_out" | tail -c 120))"
+  fi
+fi
+expect_ok "a genuinely new password is still accepted (the gate refuses reuse, not change)" \
+  "printf 'Nogal+Brisa-7714Jt\nNogal+Brisa-7714Jt\n' | sudo pamtester passwd hist-probe chauthtok"
+on_node "sudo userdel -r hist-probe 2>/dev/null; sudo sed -i '/^hist-probe:/d' /etc/security/opasswd" >/dev/null 2>&1 || true
+
 # LAST on purpose: banning the client cuts our own SSH access to the node.
 # Lift the shield installed at the top — from here on we WANT to be bannable.
 docker exec dh-test-node fail2ban-client set sshd delignoreip 172.17.0.1 >/dev/null 2>&1 || true

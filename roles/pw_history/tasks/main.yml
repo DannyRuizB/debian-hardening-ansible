@@ -1,0 +1,71 @@
+---
+# Password history — mirrors step 34 of harden.sh in the sibling Bash repo
+# (CIS 5.3.3). The password arc so far: password_policy decides WHAT may be
+# a password, account_policies WHEN it must change, faillock counts live
+# misses and guess_cost prices each try. This closes the loop: a forced
+# change is pointless if the user can rotate straight back to the old
+# password. pam_pwhistory keeps the last hashes in /etc/security/opasswd
+# and refuses any new password that matches one of them.
+#
+# Measured on the node before the step was written (in the Bash twin):
+#   - Priority 512 lands the line exactly between pam_pwquality (1024) and
+#     pam_unix (256): strength is judged first, history second, and reuse
+#     is refused BEFORE the change lands.
+#   - enforce_for_root is not decoration: without it, a reuse performed by
+#     root — chpasswd included, it traverses this same stack — still PRINTS
+#     "Password has been already used" and then goes through anyway. A
+#     warning nobody acts on is not a control.
+
+# opasswd holds password HASHES — the same sensitivity as shadow. This
+# Debian ships it empty at 0600 already, but the file is the history
+# database and the role owns its existence and its modes either way.
+# TWO tasks on purpose, measured here: copy with force:false creates the
+# file when missing and never overwrites content, but on an EXISTING file
+# it skips entirely — attributes included, so a drifted 0644 would survive.
+# The file task below owns the modes unconditionally.
+- name: Ensure the password-history database exists
+  ansible.builtin.copy:
+    content: ""
+    dest: /etc/security/opasswd
+    force: false
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: Pin opasswd to root:root 0600 (it holds password hashes)
+  ansible.builtin.file:
+    path: /etc/security/opasswd
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: Install the pam-auth-update profile (history between strength and change)
+  ansible.builtin.template:
+    src: hardening-pwhistory.j2
+    dest: /usr/share/pam-configs/hardening-pwhistory
+    owner: root
+    group: root
+    mode: "0644"
+  register: pw_history_profile
+
+# Read-only probe so the enable step below runs only when something is
+# actually missing — that's what keeps the second pass at changed=0.
+- name: Check whether pam_pwhistory is already wired into common-password
+  ansible.builtin.command:
+    cmd: grep -q pam_pwhistory /etc/pam.d/common-password
+  register: pw_history_wired
+  changed_when: false
+  failed_when: pw_history_wired.rc not in [0, 1]
+  check_mode: false
+
+- name: Wire the profile into common-password (pam-auth-update)
+  ansible.builtin.command:
+    cmd: pam-auth-update --package --enable hardening-pwhistory
+  environment:
+    DEBIAN_FRONTEND: noninteractive
+  # In --check the profile above is not actually written, so enabling it
+  # would wire nothing — the same dry-run trap as the faillock profiles.
+  when:
+    - not ansible_check_mode
+    - pw_history_profile is changed or pw_history_wired.rc != 0
+  changed_when: true

@@ -1,0 +1,5 @@
+---
+# How many previous password hashes each account may never return to.
+# 24 is the CIS-aligned figure; pam_pwhistory stores them in
+# /etc/security/opasswd.
+pw_history_remember: 24
