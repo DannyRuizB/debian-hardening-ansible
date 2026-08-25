@@ -1,0 +1,33 @@
+---
+# Crypto negotiation lists, pinned. Measured on a fresh Debian 13 node:
+# stock OpenSSH 10 still NEGOTIATES hmac-sha1 and the 64-bit-tag umac-64
+# when the client asks, and its kex list drags the NIST P-curves behind
+# the modern hybrids.
+#
+# AEAD ciphers first; ctr kept for compatibility — which is exactly why
+# the MACs pin matters: with an AEAD cipher (chacha20/GCM) OpenSSH skips
+# MAC selection entirely (the field is decorative), so the real downgrade
+# path is a client asking for aes256-ctr + hmac-sha1, and a stock server
+# obliges (measured both ways).
+ssh_crypto_ciphers:
+  - chacha20-poly1305@openssh.com
+  - aes256-gcm@openssh.com
+  - aes128-gcm@openssh.com
+  - aes256-ctr
+  - aes192-ctr
+  - aes128-ctr
+# Encrypt-then-MAC only, 128-bit tags or better: no sha1, no umac-64.
+ssh_crypto_macs:
+  - hmac-sha2-512-etm@openssh.com
+  - hmac-sha2-256-etm@openssh.com
+  - umac-128-etm@openssh.com
+# Post-quantum hybrids + curve25519, NIST P-curve tail dropped. The
+# hybrids exist for "harvest now, decrypt later": a session recorded
+# today should not become plaintext the day the recording's owner buys
+# the hardware.
+ssh_crypto_kex:
+  - mlkem768x25519-sha256
+  - sntrup761x25519-sha512
+  - sntrup761x25519-sha512@openssh.com
+  - curve25519-sha256
+  - curve25519-sha256@libssh.org

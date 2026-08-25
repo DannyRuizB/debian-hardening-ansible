@@ -62,6 +62,24 @@ echo "-- SSH: hardening extras (CIS) ------------------------------"
   && P "Idle sessions time out (ClientAliveInterval $(val clientaliveinterval))" \
   || W "No idle-session timeout (ClientAliveInterval $(val clientaliveinterval))" "add 'ClientAliveInterval 300'"
 
+echo "-- SSH: crypto policy (CIS 5.2) -----------------------------"
+# What sshd will actually NEGOTIATE — a weak MAC in this list is offered to
+# every client that asks, and only bites with a non-AEAD (ctr) cipher, which
+# stock keeps in its list too.
+case "$(val macs)" in
+  *sha1*|*umac-64*) W "sshd still offers sha1 or 64-bit-tag MACs" "pin MACs to sha2-etm/umac-128-etm (ssh_crypto role)" ;;
+  *)                P "MACs are etm-only, 128-bit tags or better (no sha1)" ;;
+esac
+case "$(val kexalgorithms)" in
+  *sha1*|*ecdh-sha2-nistp*) W "key exchange still offers NIST P-curves or sha1" "pin KexAlgorithms to the PQ hybrids + curve25519 (ssh_crypto role)" ;;
+  *mlkem768*|*sntrup761*)   P "key exchange is PQ-hybrid + curve25519 only" ;;
+  *)                        W "key exchange has no post-quantum hybrid" "pin KexAlgorithms (ssh_crypto role)" ;;
+esac
+case "$(val ciphers)" in
+  *cbc*) F "sshd still offers CBC-mode ciphers" "pin Ciphers to AEAD + ctr (ssh_crypto role)" ;;
+  *)     P "Ciphers are AEAD/ctr only (no CBC)" ;;
+esac
+
 echo "-- SSH: session policies (CIS 5.2) --------------------------"
 [ "$(val allowtcpforwarding)" = no ] \
   && P "TCP forwarding disabled (no pivoting through the host)" \

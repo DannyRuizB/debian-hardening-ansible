@@ -154,6 +154,20 @@ jobs:
           cat /usr/share/pam-configs/hardening-pwhistory
           SH
 
+      # ssh_crypto offender: an explicit weak-crypto line in the MAIN sshd
+      # config — the "legacy client compat" line every fleet has somewhere.
+      # Debian includes sshd_config.d at the TOP of sshd_config and sshd
+      # honours the FIRST occurrence of a keyword, so the role's drop-in
+      # must beat this line: planting it proves the PRECEDENCE, not just
+      # the file contents (and stock offers hmac-sha1 anyway — this keeps
+      # the check meaningful the day upstream retires it).
+      - name: Plant a weak-crypto line for ssh_crypto to override
+        run: |
+          docker exec -i dh-test-node bash -s <<'SH'
+          printf 'MACs hmac-sha2-256,hmac-sha1\nKexAlgorithms ecdh-sha2-nistp256,curve25519-sha256\n' >> /etc/ssh/sshd_config
+          sshd -t && tail -2 /etc/ssh/sshd_config
+          SH
+
       # The CI key doubles as the admin user's key. Written as a vars file
       # because -e key=value can't carry the spaces of an OpenSSH public key.
       - name: Prepare the admin user's public key as a vars file
