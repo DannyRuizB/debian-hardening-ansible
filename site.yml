@@ -60,3 +60,6 @@
     # Password history touches PAM and /etc/security only — nothing under
     # /var/log, safe after the sweep. Mirrors step 34 in the Bash twin.
     - pw_history
+    # SSH crypto policy: one sshd drop-in, nothing under /var/log, position
+    # free. Mirrors step 35 in the Bash twin.
+    - ssh_crypto

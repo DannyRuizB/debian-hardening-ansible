@@ -94,7 +94,7 @@ process-isolation doors are the two most recent). Current score on a freshly
 hardened node:
 
 ```
- Score: 119 PASS, 0 WARN, 0 FAIL  ->  100% compliant
+ Score: 122 PASS, 0 WARN, 0 FAIL  ->  100% compliant
 ```
 
 ## Honesty

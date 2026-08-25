@@ -1,0 +1,27 @@
+---
+# SSH crypto policy — mirrors step 35 of harden.sh in the sibling Bash repo:
+# CIS 5.2. ssh_hardening decides WHO gets in, ssh_policies what a session
+# may DO, ssh_access who may even knock — this role pins what the transport
+# may NEGOTIATE. See defaults/main.yml for the measured reasoning behind
+# each list (the AEAD/ctr nuance, the PQ hybrids, the retired NIST tail).
+#
+# Own drop-in, independently toggleable like every sshd role here. No
+# keyword repeats another drop-in's: sshd honours the FIRST occurrence of
+# a keyword, and Debian includes sshd_config.d at the TOP of sshd_config —
+# measured: this drop-in therefore beats any legacy-compat crypto line
+# someone left in the main file (the CI plants exactly that line).
+# 'validate' runs sshd -t on the rendered file BEFORE it replaces the live
+# one: a broken config never goes live.
+- name: Pin the SSH crypto policy (ciphers, MACs, key exchange)
+  ansible.builtin.copy:
+    content: |
+      # Managed by Ansible (ssh_crypto role). Edit the role, not this file.
+      Ciphers {{ ssh_crypto_ciphers | join(',') }}
+      MACs {{ ssh_crypto_macs | join(',') }}
+      KexAlgorithms {{ ssh_crypto_kex | join(',') }}
+    dest: /etc/ssh/sshd_config.d/95-hardening-crypto.conf
+    owner: root
+    group: root
+    mode: "0644"
+    validate: "sshd -t -f %s"
+  notify: Reload ssh for crypto policy

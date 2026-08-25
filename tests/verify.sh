@@ -930,6 +930,62 @@ expect_ok "a genuinely new password is still accepted (the gate refuses reuse, n
   "printf 'Nogal+Brisa-7714Jt\nNogal+Brisa-7714Jt\n' | sudo pamtester passwd hist-probe chauthtok"
 on_node "sudo userdel -r hist-probe 2>/dev/null; sudo sed -i '/^hist-probe:/d' /etc/security/opasswd" >/dev/null 2>&1 || true
 
+echo "== Role 35: SSH crypto policy =="
+# Effective negotiation lists straight from sshd — not the file we wrote.
+crypto_conf=$(on_node sudo sshd -T 2>/dev/null)
+macs_line=$(printf '%s\n' "$crypto_conf" | grep '^macs ')
+case "$macs_line" in
+  *sha1*|*umac-64*) fail "effective MACs carry no sha1 and no 64-bit umac" ;;
+  *etm*)            pass "effective MACs carry no sha1 and no 64-bit umac" ;;
+  *)                fail "effective MACs carry no sha1 and no 64-bit umac" ;;
+esac
+kex_line=$(printf '%s\n' "$crypto_conf" | grep '^kexalgorithms ')
+case "$kex_line" in
+  *ecdh-sha2-nistp*) fail "effective kex has no NIST P-curves" ;;
+  *mlkem768*)        pass "effective kex has no NIST P-curves" ;;
+  *)                 fail "effective kex has no NIST P-curves" ;;
+esac
+case "$crypto_conf" in
+  *cbc*) fail "effective ciphers carry no CBC mode" ;;
+  *)     pass "effective ciphers carry no CBC mode" ;;
+esac
+
+# The behavioural quartet. Options go BEFORE the destination (after it they
+# are silently part of the REMOTE command — that mistake produced a fake
+# "weak MAC accepted" while this step was being probed in the Bash twin).
+# The weak-MAC probes force a ctr cipher on purpose: with an AEAD cipher
+# (chacha20/GCM) OpenSSH skips MAC selection entirely, so a weak MAC only
+# ever bites on ctr — that nuance is why the Ciphers pin alone would not
+# close this door.
+crypto_probe() { ssh "${OPTS[@]}" -i "$KEY" "$@" opsadmin@127.0.0.1 true 2>&1; }
+out=$(crypto_probe -o Ciphers=aes256-ctr -o MACs=hmac-sha1 || true)
+case "$out" in
+  *"no matching MAC"*) pass "hmac-sha1 is refused at negotiation (no matching MAC)" ;;
+  *)                   fail "hmac-sha1 is refused at negotiation (no matching MAC)" ;;
+esac
+# A refusal only means something next to an acceptance — same client, same
+# ctr cipher, a strong MAC: the door is the algorithm, not the cipher.
+if crypto_probe -o Ciphers=aes256-ctr -o MACs=hmac-sha2-512-etm@openssh.com >/dev/null 2>&1; then
+  pass "the same ctr cipher with a strong MAC still logs in"
+else
+  fail "the same ctr cipher with a strong MAC still logs in"
+fi
+# Post-quantum hybrid negotiates for real. The VENDOR spelling on purpose:
+# the IANA name sntrup761x25519-sha512 only exists in clients >= 9.9, and
+# the CI runner's ssh is 9.6 — it knows only the @openssh.com name (there
+# since 8.5). The server pins both, so the probe must speak the older one
+# (the Bash twin's CI caught this exact probe failing under the IANA name).
+if crypto_probe -o KexAlgorithms=sntrup761x25519-sha512@openssh.com >/dev/null 2>&1; then
+  pass "post-quantum hybrid kex (sntrup761x25519) negotiates"
+else
+  fail "post-quantum hybrid kex (sntrup761x25519) negotiates"
+fi
+out=$(crypto_probe -o KexAlgorithms=ecdh-sha2-nistp256 || true)
+case "$out" in
+  *"no matching key exchange"*) pass "NIST P-curve kex is refused at negotiation" ;;
+  *)                            fail "NIST P-curve kex is refused at negotiation" ;;
+esac
+
 # LAST on purpose: banning the client cuts our own SSH access to the node.
 # Lift the shield installed at the top — from here on we WANT to be bannable.
 docker exec dh-test-node fail2ban-client set sshd delignoreip 172.17.0.1 >/dev/null 2>&1 || true
