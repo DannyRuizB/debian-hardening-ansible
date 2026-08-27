@@ -1011,6 +1011,16 @@ fi
 expect_ok "telnet/rsh/tftp binaries are gone from PATH" \
   bash -c "'! command -v telnet && ! command -v rsh && ! command -v tftp'"
 
+echo "== Role 37: filesystem protections (CIS 1.5.x) =="
+# The EFFECTIVE kernel values (the drop-in is the promise, the live knob the
+# proof). The e2e plants all four weak first, so a pass here is real work.
+expect_line "fs.protected_symlinks is on"  '^1$' sudo sysctl -n fs.protected_symlinks
+expect_line "fs.protected_hardlinks is on" '^1$' sudo sysctl -n fs.protected_hardlinks
+expect_line "fs.protected_fifos is on"     '^1$' sudo sysctl -n fs.protected_fifos
+expect_line "fs.protected_regular is 2 (the strong setting)" '^2$' sudo sysctl -n fs.protected_regular
+expect_line "the fs-protection drop-in is present and root-owned 0644" '^644 root root$' \
+  "sudo stat -c '%a %U %G' /etc/sysctl.d/99-hardening-fs.conf"
+
 # LAST on purpose: banning the client cuts our own SSH access to the node.
 # Lift the shield installed at the top — from here on we WANT to be bannable.
 docker exec dh-test-node fail2ban-client set sshd delignoreip 172.17.0.1 >/dev/null 2>&1 || true

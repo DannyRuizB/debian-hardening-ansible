@@ -1,0 +1,26 @@
+---
+# Filesystem protections — mirrors step 37 of harden.sh in the sibling Bash
+# repo: CIS 1.5.x. The fs.protected_* sysctls defend the symlink/hardlink
+# TOCTOU class in a world-writable directory the whole box shares:
+#   protected_symlinks: a privileged process follows a symlink in a sticky
+#     dir (/tmp) only when the owners line up — the swap of /tmp/foo for a
+#     link to /etc/shadow between a root check and its open stops working.
+#   protected_hardlinks: you can only hardlink to a file you could already
+#     read/write — no pinning someone else's secret to outlive their delete.
+#   protected_fifos=1 / protected_regular=2: the same for FIFOs and regular
+#     files a root-run process might write to a predictable path.
+#
+# ansible.posix.sysctl is idempotent by construction (it reads the running
+# value before writing) and owns both halves at once: the value lands in the
+# drop-in AND is applied live via `sysctl -p`. Modern kernels ship these
+# already on, so the CI plants all four at 0 first — the role must prove it
+# TIGHTENS them, not confirm a default.
+- name: Pin the fs.protected_* sysctls in their own drop-in
+  ansible.posix.sysctl:
+    name: "{{ item.key }}"
+    value: "{{ item.value }}"
+    sysctl_file: "{{ fs_protected_dropin }}"
+    sysctl_set: true
+    reload: true
+    state: present
+  loop: "{{ fs_protected_values | dict2items }}"

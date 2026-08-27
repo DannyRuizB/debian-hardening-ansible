@@ -180,6 +180,17 @@ jobs:
           command -v telnet && dpkg-query -W telnet inetutils-telnet xinetd
           SH
 
+      # fs_protected offenders: modern kernels ship fs.protected_* already ON
+      # (1/1/1/2), so without planting the role would confirm a default. Write
+      # all four to 0 via /proc (the privileged container's write takes) — the
+      # role must tighten them back.
+      - name: Plant weak fs.protected_* values for fs_protected to tighten
+        run: |
+          docker exec -i dh-test-node bash -s <<'SH'
+          for f in symlinks hardlinks fifos regular; do echo 0 > /proc/sys/fs/protected_$f; done
+          grep -H . /proc/sys/fs/protected_symlinks /proc/sys/fs/protected_regular
+          SH
+
       # The CI key doubles as the admin user's key. Written as a vars file
       # because -e key=value can't carry the spaces of an OpenSSH public key.
       - name: Prepare the admin user's public key as a vars file
