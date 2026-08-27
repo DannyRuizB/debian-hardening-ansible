@@ -168,6 +168,18 @@ jobs:
           sshd -t && tail -2 /etc/ssh/sshd_config
           SH
 
+      # legacy_protocols offenders: a legacy client and a legacy superserver
+      # apt can still install on Debian 13 — and `telnet` is the transitional
+      # trap (a dummy package whose payload is inetutils-telnet via
+      # update-alternatives: removing the dummy alone leaves /usr/bin/telnet
+      # working). The purge must take the whole pair AND xinetd away.
+      - name: Plant legacy protocol packages for legacy_protocols to purge
+        run: |
+          docker exec -i dh-test-node bash -s <<'SH'
+          apt-get install -y --no-install-recommends telnet xinetd >/dev/null
+          command -v telnet && dpkg-query -W telnet inetutils-telnet xinetd
+          SH
+
       # The CI key doubles as the admin user's key. Written as a vars file
       # because -e key=value can't carry the spaces of an OpenSSH public key.
       - name: Prepare the admin user's public key as a vars file

@@ -39,6 +39,13 @@
     # touches /var/log — or the second pass re-tightens what apt just
     # wrote and the idempotence gate breaks.
     - auditd
+    # Legacy protocol purge BEFORE the log sweep, same reason as auditd:
+    # apt writes its /var/log/apt files with loose modes on every purge, and
+    # the sweep must be the last thing that touches /var/log. The CI's
+    # idempotence gate caught exactly this — with the purge last, pass 2's
+    # sweep re-tightened what pass 1's purge made apt write. Mirrors step 36
+    # in the Bash twin.
+    - legacy_protocols
     - log_permissions
     - logrotate_perms
     # Homes touch /home, not /var/log, so running after the log sweep is
