@@ -309,11 +309,16 @@ expect_line "a daily check timer is enabled" '^enabled$' \
 # built during hardening without this file, so it is unambiguous drift.
 on_node "sudo sh -c 'echo pwn > /etc/aide-probe.conf'" >/dev/null 2>&1 || true
 aide_out=$(on_node "sudo aide --config=/etc/aide/hardening.conf --check 2>&1 || true")
-if printf '%s\n' "$aide_out" | grep -q "aide-probe.conf"; then
-  pass "a new file under /etc is caught by an AIDE check (tamper-evident)"
-else
-  fail "a new file under /etc is caught by an AIDE check (tamper-evident)"
-fi
+# Match with a `case` glob, NOT `printf "$aide_out" | grep -q`: an AIDE
+# report listing every added file (this suite keeps adding drop-ins under
+# /etc, so the baseline-vs-now diff grows) can run to many lines, and under
+# `pipefail` grep -q closing the pipe on its first match kills printf with
+# SIGPIPE — the pipeline then "fails" despite the match. A pure-bash case
+# has no pipe to break.
+case "$aide_out" in
+  *aide-probe.conf*) pass "a new file under /etc is caught by an AIDE check (tamper-evident)" ;;
+  *)                 fail "a new file under /etc is caught by an AIDE check (tamper-evident)" ;;
+esac
 on_node "sudo rm -f /etc/aide-probe.conf" >/dev/null 2>&1 || true
 
 echo "== Rootkit detection (rkhunter) =="
@@ -1010,6 +1015,16 @@ fi
 # payload lives under another name, so the binary going away is its own check.
 expect_ok "telnet/rsh/tftp binaries are gone from PATH" \
   bash -c "'! command -v telnet && ! command -v rsh && ! command -v tftp'"
+
+echo "== Role 37: filesystem protections (CIS 1.5.x) =="
+# The EFFECTIVE kernel values (the drop-in is the promise, the live knob the
+# proof). The e2e plants all four weak first, so a pass here is real work.
+expect_line "fs.protected_symlinks is on"  '^1$' sudo sysctl -n fs.protected_symlinks
+expect_line "fs.protected_hardlinks is on" '^1$' sudo sysctl -n fs.protected_hardlinks
+expect_line "fs.protected_fifos is on"     '^1$' sudo sysctl -n fs.protected_fifos
+expect_line "fs.protected_regular is 2 (the strong setting)" '^2$' sudo sysctl -n fs.protected_regular
+expect_line "the fs-protection drop-in is present and root-owned 0644" '^644 root root$' \
+  "sudo stat -c '%a %U %G' /etc/sysctl.d/99-hardening-fs.conf"
 
 # LAST on purpose: banning the client cuts our own SSH access to the node.
 # Lift the shield installed at the top — from here on we WANT to be bannable.

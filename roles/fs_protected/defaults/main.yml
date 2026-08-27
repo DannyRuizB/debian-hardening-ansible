@@ -1,0 +1,14 @@
+---
+# The fs.protected_* sysctls (CIS 1.5.x) that shut down the symlink/hardlink
+# TOCTOU class in world-writable directories. See tasks/main.yml for why each
+# one matters. protected_regular takes 2 (the strong setting that also covers
+# same-owner writes in sticky dirs); the other three take 1.
+fs_protected_values:
+  fs.protected_symlinks: "1"
+  fs.protected_hardlinks: "1"
+  fs.protected_fifos: "1"
+  fs.protected_regular: "2"
+
+# Own drop-in, not the sysctl_hardening file, so disabling either role leaves
+# the other intact — the per-role drop-in precedent (process_isolation).
+fs_protected_dropin: /etc/sysctl.d/99-hardening-fs.conf

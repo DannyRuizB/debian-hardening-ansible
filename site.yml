@@ -70,3 +70,7 @@
     # SSH crypto policy: one sshd drop-in, nothing under /var/log, position
     # free. Mirrors step 35 in the Bash twin.
     - ssh_crypto
+    # Filesystem protections: one sysctl drop-in, touches nothing another
+    # role owns, position free. Mirrors step 37 in the Bash twin (36 is
+    # legacy_protocols, run earlier for the /var/log ordering rule).
+    - fs_protected

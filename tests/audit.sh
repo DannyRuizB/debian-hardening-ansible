@@ -595,6 +595,19 @@ on_node stat -c '%a %U %G' /etc/security/opasswd 2>/dev/null | grep -q '^600 roo
   && P "opasswd is root:root 0600 (it stores password hashes)" \
   || W "opasswd is loose or missing" "install root:root 0600 /etc/security/opasswd (pw_history role)"
 
+echo "-- Filesystem protections (CIS 1.5.x) ------------------------"
+for kv in protected_symlinks:1 protected_hardlinks:1 protected_fifos:1 protected_regular:2; do
+  key="fs.${kv%:*}"; want="${kv#*:}"
+  got=$(sctl "$key")
+  if [ "$got" = "$want" ]; then
+    P "$key = $got"
+  elif [ -z "$got" ]; then
+    W "$key is unreadable on this kernel" "expected $want (fs_protected role)"
+  else
+    W "$key is $got, not $want" "run the fs_protected role"
+  fi
+done
+
 echo "-- Accounts & files -----------------------------------------"
 on_node getent group sudo | grep -qE ':.*[a-z]' \
   && P "A non-root sudo account exists ($(on_node getent group sudo | sed 's/.*://'))" \
