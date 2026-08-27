@@ -63,3 +63,6 @@
     # SSH crypto policy: one sshd drop-in, nothing under /var/log, position
     # free. Mirrors step 35 in the Bash twin.
     - ssh_crypto
+    # Legacy protocol purge: removes packages, touches nothing another role
+    # owns, position free. Mirrors step 36 in the Bash twin.
+    - legacy_protocols

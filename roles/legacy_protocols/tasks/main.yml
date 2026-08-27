@@ -1,0 +1,16 @@
+---
+# Legacy protocol purge — mirrors step 36 of harden.sh in the sibling Bash
+# repo: CIS 2.2/2.3. Code that is not installed cannot be exploited or
+# misconfigured; see defaults/main.yml for why each family is on the list.
+#
+# One declarative task where the Bash twin needs a dpkg-first guard: the
+# apt module with state=absent treats an unknown or candidate-less name as
+# "already absent" (measured on a Debian 13 node), while a blind
+# `apt-get purge` exits 100 on a name the sources never heard of.
+# purge=true drops the config files too — a removed-but-not-purged package
+# still leaves its config behind, waiting for a reinstall to rearm it.
+- name: Purge legacy network-protocol packages (telnet/rsh/talk/NIS/tftp/inetd)
+  ansible.builtin.apt:
+    name: "{{ legacy_protocols_packages }}"
+    state: absent
+    purge: true

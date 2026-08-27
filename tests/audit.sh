@@ -80,6 +80,30 @@ case "$(val ciphers)" in
   *)     P "Ciphers are AEAD/ctr only (no CBC)" ;;
 esac
 
+echo "-- Legacy protocol packages (CIS 2.2/2.3) --------------------"
+# dpkg state on the node: installed or config-files both count as present.
+legacy_check() {
+  local found="" p st
+  for p in $2; do
+    st=$(on_node dpkg-query -W -f '${db:Status-Status}' "$p") || true
+    case "$st" in installed|config-files) found="$found $p";; esac
+  done
+  echo "$found"
+}
+srv_found=$(legacy_check servers "telnetd inetutils-telnetd rsh-server rsh-redone-server talkd inetutils-talkd tftpd atftpd tftpd-hpa xinetd openbsd-inetd inetutils-inetd")
+[ -z "$srv_found" ] \
+  && P "No legacy protocol server installed (telnetd/rshd/talkd/tftpd/inetd family)" \
+  || F "Legacy protocol servers present:$srv_found" "purge them (legacy_protocols role)"
+cli_found=$(legacy_check clients "telnet inetutils-telnet rsh-client rsh-redone-client talk inetutils-talk tftp atftp tftp-hpa")
+[ -z "$cli_found" ] \
+  && P "No legacy cleartext client installed (telnet/rsh/talk/tftp family)" \
+  || W "Legacy cleartext clients present:$cli_found" "run the legacy_protocols role"
+nis_st=$(on_node dpkg-query -W -f '${db:Status-Status}' nis) || true
+case "$nis_st" in
+  installed|config-files) F "NIS is installed" "purge nis (legacy_protocols role)";;
+  *) P "NIS is not installed (nobody serves the password map)";;
+esac
+
 echo "-- SSH: session policies (CIS 5.2) --------------------------"
 [ "$(val allowtcpforwarding)" = no ] \
   && P "TCP forwarding disabled (no pivoting through the host)" \

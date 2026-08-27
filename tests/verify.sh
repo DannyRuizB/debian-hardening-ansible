@@ -986,6 +986,31 @@ case "$out" in
   *)                            fail "NIST P-curve kex is refused at negotiation" ;;
 esac
 
+echo "== Role 36: legacy protocol purge (CIS 2.2/2.3) =="
+# Present means present as dpkg sees it: installed OR config-files (a
+# removed-but-not-purged package still leaves its config behind). The list
+# mirrors legacy_protocol_packages in the role — both halves of every
+# transitional pair, because removing `telnet` alone leaves inetutils-telnet
+# (and /usr/bin/telnet) behind.
+legacy_present=""
+for p in telnet inetutils-telnet telnetd inetutils-telnetd \
+         rsh-client rsh-redone-client rsh-server rsh-redone-server \
+         talk inetutils-talk talkd inetutils-talkd \
+         nis tftp tftpd atftp atftpd tftp-hpa tftpd-hpa \
+         xinetd openbsd-inetd inetutils-inetd; do
+  st=$(on_node dpkg-query -W -f "'\${db:Status-Status}'" "$p" 2>/dev/null) || true
+  case "$st" in installed|config-files) legacy_present="$legacy_present $p";; esac
+done
+if [ -z "$legacy_present" ]; then
+  pass "no legacy protocol package survives (22 names checked, dpkg state)"
+else
+  fail "legacy protocol packages still present:$legacy_present"
+fi
+# And as PATH sees it — the planted telnet was a transitional package whose
+# payload lives under another name, so the binary going away is its own check.
+expect_ok "telnet/rsh/tftp binaries are gone from PATH" \
+  bash -c "'! command -v telnet && ! command -v rsh && ! command -v tftp'"
+
 # LAST on purpose: banning the client cuts our own SSH access to the node.
 # Lift the shield installed at the top — from here on we WANT to be bannable.
 docker exec dh-test-node fail2ban-client set sshd delignoreip 172.17.0.1 >/dev/null 2>&1 || true

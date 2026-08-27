@@ -1,0 +1,38 @@
+---
+# Packages whose protocol IS the vulnerability: telnet/rlogin/talk move
+# credentials and sessions in cleartext, NIS hands the password map to
+# whoever asks, tftp has no authentication at all, and the inetd
+# superservers exist to expose more of the above. Every variant Debian has
+# shipped is listed (netkit, inetutils, redone, hpa) — a wishlist, not an
+# inventory: the apt module quietly skips names this release no longer
+# carries (measured: rsh-client has no installation candidate on Debian 13,
+# and rsh-redone-client is gone entirely — state=absent shrugs at both,
+# where the Bash twin's apt-get purge would exit 100 on the second).
+#
+# Both halves of every transitional pair are named on purpose: on Debian 13
+# `telnet` is a dummy package whose payload is inetutils-telnet (wired via
+# update-alternatives) — removing the dummy alone leaves /usr/bin/telnet
+# working.
+legacy_protocols_packages:
+  - telnet
+  - inetutils-telnet
+  - telnetd
+  - inetutils-telnetd
+  - rsh-client
+  - rsh-redone-client
+  - rsh-server
+  - rsh-redone-server
+  - talk
+  - inetutils-talk
+  - talkd
+  - inetutils-talkd
+  - nis
+  - tftp
+  - tftpd
+  - atftp
+  - atftpd
+  - tftp-hpa
+  - tftpd-hpa
+  - xinetd
+  - openbsd-inetd
+  - inetutils-inetd
