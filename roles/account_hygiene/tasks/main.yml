@@ -1,0 +1,67 @@
+---
+# Account database hygiene — mirrors step 38 of harden.sh in the sibling Bash
+# repo: CIS 6.2. Three ways the account DATA hands out logins, invisible to
+# every role that hardens the PAM stack because the hole is in the files, not
+# the modules — all three measured on a stock Debian 13 node:
+#
+#   * NIS compat entries ('+'/'-' lines): inert under nsswitch `files` (the
+#     Debian default), but the day a service flips to `compat`, an
+#     unrestricted '+::0:0:::' splices in every NIS account — uid 0
+#     included. legacy_protocols purged the NIS packages; this removes the
+#     trigger data. They also pollute the field scans below, so they go
+#     first.
+#   * A hash in world-readable /etc/passwd AUTHENTICATES (measured: pam_unix
+#     accepts it) and hands every local account an offline cracking target —
+#     pwconv moves it into /etc/shadow (0640 root:shadow), password intact.
+#   * An EMPTY password field in /etc/shadow: Debian ships pam_unix with
+#     `nullok`, so pressing Enter IS that account's password (measured with
+#     pamtester). Locked — reversible with passwd -u once a real password
+#     is set.
+#
+# Order matters: '+' lines out first, then pwconv (an empty passwd field
+# becomes an empty shadow field), then the empty-password lock catches what
+# pwconv surfaced.
+
+- name: Remove legacy NIS compat ('+'/'-') entries from the account database
+  ansible.builtin.lineinfile:
+    path: "{{ item }}"
+    regexp: '^[+-]'
+    state: absent
+  loop: "{{ account_hygiene_nis_files }}"
+
+# Read-only probe (runs even under --check): which passwd entries carry
+# password material instead of the shadow pointer 'x'?
+- name: Probe for unshadowed password fields in /etc/passwd
+  ansible.builtin.command:
+    cmd: >-
+      awk -F: '$2 != "x" {print $1}' /etc/passwd
+  register: account_hygiene_unshadowed
+  changed_when: false
+  check_mode: false
+
+- name: Move passwd-file password material into /etc/shadow (pwconv)
+  ansible.builtin.command: pwconv
+  when:
+    - not ansible_check_mode
+    - account_hygiene_unshadowed.stdout | length > 0
+  changed_when: true
+
+# Read-only probe, AFTER pwconv on purpose: an empty passwd field has just
+# become an empty shadow field, and this is the net that catches it.
+- name: Probe for empty password fields in /etc/shadow
+  ansible.builtin.command:
+    cmd: >-
+      awk -F: '($2 == ""){print $1}' /etc/shadow
+  register: account_hygiene_empty
+  changed_when: false
+  check_mode: false
+
+# The reject() keeps --check honest on an unfixed node: there the '+' lines
+# are still present (lineinfile hasn't really removed them) and their empty
+# field would put '+' in this loop — a "user" the removal task owns, not
+# this one. On a real run the loop only ever sees real accounts.
+- name: Lock accounts whose password is empty (nullok made them free logins)
+  ansible.builtin.user:
+    name: "{{ item }}"
+    password_lock: true
+  loop: "{{ account_hygiene_empty.stdout_lines | reject('match', '^[+-]') | list }}"

@@ -191,6 +191,28 @@ jobs:
           grep -H . /proc/sys/fs/protected_symlinks /proc/sys/fs/protected_regular
           SH
 
+      # account_hygiene offenders — the logins that hide in the account DATA,
+      # all three measured to work on a stock node before the role was
+      # written: an EMPTY password authenticates with a bare Enter (pam_unix
+      # ships nullok), a hash sitting in world-readable /etc/passwd
+      # authenticates from there too, and legacy NIS '+' entries are the
+      # splice-the-map-in trigger the moment nsswitch ever flips to compat.
+      - name: Plant account-database offenders for account_hygiene to clean
+        run: |
+          docker exec -i dh-test-node bash -s <<'SH'
+          useradd --create-home --shell /bin/bash dhnopw && passwd -d dhnopw
+          useradd --create-home --shell /bin/bash dhlegacy
+          echo "dhlegacy:Sh4dow-Migr8-OK!9" | chpasswd
+          h=$(grep "^dhlegacy:" /etc/shadow | cut -d: -f2)
+          sed -i "s|^dhlegacy:x:|dhlegacy:$h:|" /etc/passwd
+          sed -i "s|^dhlegacy:[^:]*:|dhlegacy:*:|" /etc/shadow
+          printf "+::0:0:::\n" >> /etc/passwd
+          printf "+::::::::\n" >> /etc/shadow
+          printf "+:::\n" >> /etc/group
+          grep -c "^+" /etc/passwd /etc/shadow /etc/group
+          grep "^dhlegacy:" /etc/passwd | cut -c1-24
+          SH
+
       # The CI key doubles as the admin user's key. Written as a vars file
       # because -e key=value can't carry the spaces of an OpenSSH public key.
       - name: Prepare the admin user's public key as a vars file

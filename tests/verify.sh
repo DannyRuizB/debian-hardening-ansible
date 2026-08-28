@@ -1029,6 +1029,33 @@ expect_line "the fs-protection drop-in is present and root-owned 0644" '^644 roo
 # LAST on purpose: banning the client cuts our own SSH access to the node.
 # Lift the shield installed at the top — from here on we WANT to be bannable.
 docker exec dh-test-node fail2ban-client set sshd delignoreip 172.17.0.1 >/dev/null 2>&1 || true
+echo "== Account database hygiene =="
+# The CI plants two data-level logins before hardening (both measured on a
+# stock node): dhnopw with an EMPTY password — Debian ships pam_unix with
+# `nullok`, so pressing Enter authenticated — and dhlegacy with its hash
+# sitting in world-readable /etc/passwd, which pam_unix also accepts. Plus
+# a legacy NIS '+' entry in each of passwd/shadow/group.
+expect_ok "no NIS compat ('+'/'-') entries survive in the account database" \
+  "! sudo grep -qE '^[+-]' /etc/passwd /etc/shadow /etc/group"
+expect_ok "every /etc/passwd password field is a shadow pointer ('x')" \
+  "awk -F: '\$2 != \"x\" {exit 1}' /etc/passwd"
+expect_line "the planted passwd-file hash now lives in /etc/shadow" '^\$y\$' \
+  "sudo awk -F: '\$1 == \"dhlegacy\" {print \$2}' /etc/shadow"
+# Moved, not broken: the SAME password planted before hardening must still
+# authenticate after the migration — pwconv relocates the hash, it doesn't
+# reset the account.
+expect_ok "the migrated password still authenticates (moved, not broken)" \
+  "printf 'Sh4dow-Migr8-OK!9\n' | sudo pamtester login dhlegacy authenticate"
+expect_line "the empty-password account is locked ('!') in /etc/shadow" '^!' \
+  "sudo awk -F: '\$1 == \"dhnopw\" {print \$2}' /etc/shadow"
+# Behavioral crown: before hardening, pressing Enter WAS dhnopw's password
+# (measured); the lock must have closed that door.
+if on_node "printf '\n' | sudo pamtester login dhnopw authenticate" >/dev/null 2>&1; then
+  fail "pressing Enter is no longer a password (empty-password account locked)"
+else
+  pass "pressing Enter is no longer a password (empty-password account locked)"
+fi
+
 echo "== Fail2Ban really bans =="
 # Attack with a mix of NON-existent usernames (root/admin/oracle/...), the way a
 # real bot does. These log as 'Invalid user' from the sshd-session process on

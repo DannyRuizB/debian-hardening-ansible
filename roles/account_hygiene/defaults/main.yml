@@ -1,0 +1,8 @@
+---
+# Account database hygiene (CIS 6.2) — see tasks/main.yml for why each item
+# matters. The four files a legacy NIS compat ('+'/'-') line can hide in.
+account_hygiene_nis_files:
+  - /etc/passwd
+  - /etc/shadow
+  - /etc/group
+  - /etc/gshadow
