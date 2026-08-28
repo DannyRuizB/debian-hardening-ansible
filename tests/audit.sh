@@ -615,7 +615,20 @@ on_node getent group sudo | grep -qE ':.*[a-z]' \
 empty=$(on_node awk -F: '($2==""){print $1}' /etc/shadow | tr '\n' ' ')
 [ -z "$empty" ] \
   && P "No accounts with an empty password" \
-  || F "Accounts with empty password: $empty" "lock or set passwords"
+  || F "Accounts with empty password: $empty" "lock or set passwords (account_hygiene role)"
+# Legacy NIS compat entries: inert under nsswitch `files`, but a service
+# flipped to `compat` would splice the NIS map in — uid 0 included.
+if on_node grep -qE '^[+-]' /etc/passwd /etc/shadow /etc/group; then
+  F "NIS compat ('+'/'-') entries present in the account database" "remove them (account_hygiene role)"
+else
+  P "No NIS compat ('+'/'-') entries in passwd/shadow/group"
+fi
+# A hash in world-readable /etc/passwd both authenticates and hands every
+# local account an offline cracking target.
+unshadowed=$(on_node awk -F: '($2!="x"){print $1}' /etc/passwd | tr '\n' ' ')
+[ -z "${unshadowed// /}" ] \
+  && P "Every /etc/passwd password field is shadowed ('x')" \
+  || F "Password material in world-readable /etc/passwd: $unshadowed" "run the account_hygiene role (pwconv)"
 perm=$(on_node stat -c '%a' /etc/ssh/sshd_config)
 [ "$perm" = 600 ] || [ "$perm" = 644 ] \
   && P "sshd_config permissions sane ($perm)" \

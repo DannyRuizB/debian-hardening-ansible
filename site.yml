@@ -14,6 +14,13 @@
     - fail2ban
     - unattended_upgrades
     - sysctl_hardening
+    # Account hygiene BEFORE account_policies on purpose: pwconv moves a
+    # passwd-file hash into /etc/shadow, and the aging role only applies its
+    # policy to accounts whose shadow entry holds a real hash — hygiene later
+    # would leave that account unaged until the NEXT pass (the idempotence
+    # gate catches /etc/shadow changing on the second run). Mirrors step 38
+    # in the Bash twin, which runs before its aging step for the same reason.
+    - account_hygiene
     - account_policies
     - mount_options
     - banners
