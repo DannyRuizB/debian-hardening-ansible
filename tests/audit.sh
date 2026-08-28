@@ -608,6 +608,30 @@ for kv in protected_symlinks:1 protected_hardlinks:1 protected_fifos:1 protected
   fi
 done
 
+echo "-- Exploit mitigations (CIS 1.5.1 + kernel surface) -----------"
+# The standard exploit primitives, priced: fixed addresses (ASLR off),
+# soft-booting an unsigned kernel (kexec), unprivileged BPF (JIT spray /
+# verifier bugs) and perf as a side-channel listening post.
+for kv in randomize_va_space:2 kexec_load_disabled:1 unprivileged_bpf_disabled:1 perf_event_paranoid:3; do
+  key="kernel.${kv%:*}"; want="${kv#*:}"
+  got=$(sctl "$key")
+  if [ "$got" = "$want" ]; then
+    P "$key = $got"
+  else
+    W "$key is ${got:-unreadable}, not $want" "run the exploit_mitigations role"
+  fi
+done
+# Kernels without the JIT knob have nothing to blind — the drop-in still
+# carries the pin for kernels that do, so absence grades as in place.
+jit=$(sctl net.core.bpf_jit_harden)
+if [ -z "$jit" ]; then
+  P "net.core.bpf_jit_harden not exposed by this kernel (pinned in the drop-in regardless)"
+elif [ "$jit" = 2 ]; then
+  P "net.core.bpf_jit_harden = 2 (JIT constants blinded for every user)"
+else
+  W "net.core.bpf_jit_harden is $jit, not 2" "run the exploit_mitigations role"
+fi
+
 echo "-- Accounts & files -----------------------------------------"
 on_node getent group sudo | grep -qE ':.*[a-z]' \
   && P "A non-root sudo account exists ($(on_node getent group sudo | sed 's/.*://'))" \

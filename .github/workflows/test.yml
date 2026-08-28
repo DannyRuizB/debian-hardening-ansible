@@ -191,6 +191,28 @@ jobs:
           grep -H . /proc/sys/fs/protected_symlinks /proc/sys/fs/protected_regular
           SH
 
+      # exploit_mitigations offenders: the runner ships full ASLR and a
+      # soft-disabled unprivileged BPF, so plant the classic weak values (a
+      # debugging session's randomize_va_space=0, BPF fully open, perf at
+      # everything-goes -1) via /proc. kexec_load_disabled is the natural
+      # offender (ships 0, one-way — nothing to plant), and the BPF plant
+      # tolerates an already-latched kernel (writing 0 past the latch is
+      # EPERM by design, measured). The two greps log the smoking gun: with
+      # ASLR off, two fresh processes print the SAME stack base.
+      - name: Plant exploit-mitigation offenders for the role to fix
+        run: |
+          docker exec -i dh-test-node bash -s <<'SH'
+          echo 0 > /proc/sys/kernel/randomize_va_space
+          echo 0 > /proc/sys/kernel/unprivileged_bpf_disabled 2>/dev/null \
+            || echo "unprivileged_bpf_disabled already latched at 1 (one-way) - nothing to plant"
+          echo -1 > /proc/sys/kernel/perf_event_paranoid
+          if [ -e /proc/sys/net/core/bpf_jit_harden ]; then echo 0 > /proc/sys/net/core/bpf_jit_harden; fi
+          echo "ASLR planted off - two fresh processes, same stack base:"
+          grep -m1 "\[stack\]" /proc/self/maps | cut -d- -f1
+          grep -m1 "\[stack\]" /proc/self/maps | cut -d- -f1
+          grep -H . /proc/sys/kernel/randomize_va_space /proc/sys/kernel/perf_event_paranoid
+          SH
+
       # account_hygiene offenders — the logins that hide in the account DATA,
       # all three measured to work on a stock node before the role was
       # written: an EMPTY password authenticates with a bare Enter (pam_unix
