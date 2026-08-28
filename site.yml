@@ -81,3 +81,6 @@
     # role owns, position free. Mirrors step 37 in the Bash twin (36 is
     # legacy_protocols, run earlier for the /var/log ordering rule).
     - fs_protected
+    # Exploit mitigations: its own sysctl drop-in (ASLR, kexec, unprivileged
+    # BPF, JIT hardening, perf) — position free. Mirrors step 39.
+    - exploit_mitigations

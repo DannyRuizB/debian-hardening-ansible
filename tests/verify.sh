@@ -1056,6 +1056,40 @@ else
   pass "pressing Enter is no longer a password (empty-password account locked)"
 fi
 
+echo "== Exploit mitigations =="
+expect_line "full ASLR is in effect (randomize_va_space = 2)" '^2$' \
+  sudo sysctl -n kernel.randomize_va_space
+# Behavioral crown: with ASLR planted off, two fresh processes report the
+# SAME stack base (measured while planting — the CI logs it); with full
+# ASLR back on they must differ. /proc/self resolves inside each grep, so
+# every probe is a brand-new address space.
+stack_a=$(on_node "grep -m1 '\\[stack\\]' /proc/self/maps | cut -d- -f1" 2>/dev/null)
+stack_b=$(on_node "grep -m1 '\\[stack\\]' /proc/self/maps | cut -d- -f1" 2>/dev/null)
+if [ -n "$stack_a" ] && [ "$stack_a" != "$stack_b" ]; then
+  pass "two fresh processes land on different stack addresses (ASLR is real)"
+else
+  fail "two fresh processes land on different stack addresses (got '$stack_a' twice)"
+fi
+expect_line "kexec into a replacement kernel is disabled (one-way latch)" '^1$' \
+  sudo sysctl -n kernel.kexec_load_disabled
+expect_line "unprivileged BPF is off and latched (one-way)" '^1$' \
+  sudo sysctl -n kernel.unprivileged_bpf_disabled
+# Not every kernel exposes the JIT knob (the WSL lab kernel doesn't —
+# measured): where it exists it must be 2; where it doesn't, the drop-in
+# still carries the pin for kernels that do.
+jit=$(on_node "sudo sysctl -n net.core.bpf_jit_harden 2>/dev/null" 2>/dev/null || true)
+if [ -z "$jit" ]; then
+  pass "bpf_jit_harden not exposed by this kernel — pinned in the drop-in regardless"
+elif [ "$jit" = 2 ]; then
+  pass "the BPF JIT is blinded for every user (bpf_jit_harden = 2)"
+else
+  fail "bpf_jit_harden should be 2, got $jit"
+fi
+expect_line "perf events are root-only (perf_event_paranoid = 3)" '^3$' \
+  sudo sysctl -n kernel.perf_event_paranoid
+expect_line "the exploit-mitigation drop-in survives reboots" \
+  'kernel\.randomize_va_space = 2' sudo cat /etc/sysctl.d/99-hardening-exploit.conf
+
 echo "== Fail2Ban really bans =="
 # Attack with a mix of NON-existent usernames (root/admin/oracle/...), the way a
 # real bot does. These log as 'Invalid user' from the sshd-session process on
