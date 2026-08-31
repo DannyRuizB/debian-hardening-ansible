@@ -1,0 +1,11 @@
+---
+# Time synchronization (CIS 2.1) — the clock is a security control, not a
+# convenience: certificate validity windows, Kerberos ticket lifetimes, TOTP
+# codes and log correlation are all comparisons against it, and drift fails
+# them SILENTLY. Explicit servers, because the stock config carries them only
+# as commented-out fallback defaults — and a fallback default is not a
+# decision (the WDigest argument the Windows sibling makes, applied to the
+# clock). Cross-provider fallback so one provider's bad day doesn't stop time.
+time_sync_ntp: "0.debian.pool.ntp.org 1.debian.pool.ntp.org 2.debian.pool.ntp.org 3.debian.pool.ntp.org"
+time_sync_fallback: "time.cloudflare.com time.google.com"
+time_sync_dropin: /etc/systemd/timesyncd.conf.d/99-hardening.conf

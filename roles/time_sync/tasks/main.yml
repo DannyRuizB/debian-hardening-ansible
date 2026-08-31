@@ -1,0 +1,108 @@
+---
+# Time synchronization — mirrors step 41 of harden.sh in the sibling Bash
+# repo (CIS 2.1: exactly ONE time daemon, configured). See defaults/main.yml
+# for why the clock is a security control.
+#
+# The honesty fork, measured while designing the step: systemd-timesyncd
+# ships ConditionVirtualization=!container — inside a container (this repo's
+# CI node) systemd itself keeps the unit inactive BY DESIGN, because there is
+# exactly one kernel clock and it belongs to the host. Also measured:
+# `systemctl start` returns 0 on the unmet condition, so the attempt is safe
+# everywhere. The config is still real work: staged, enabled, and live the
+# moment this filesystem boots on a real machine — the auditd promise split.
+
+# An admin's chrony/ntpsec is a decision — defer to it, never purge a
+# working clock daemon out from under a box.
+- name: Detect a running chrony/ntpsec (an admin's clock daemon is a decision)
+  ansible.builtin.shell:
+    executable: /bin/bash
+    cmd: |
+      set -o pipefail
+      systemctl is-active chrony chronyd ntpsec ntp ntpd 2>/dev/null | grep -x active || true
+  register: time_sync_other
+  changed_when: false
+  check_mode: false
+
+- name: Note that another clock daemon is in charge
+  ansible.builtin.debug:
+    msg: "a chrony/ntpsec unit is active - leaving it in charge (one clock daemon is the point)"
+  when: time_sync_other.stdout != ''
+
+- name: Configure systemd-timesyncd (skipped when another daemon keeps time)
+  when: time_sync_other.stdout == ''
+  block:
+    # Debian 13 ships systemd-timesyncd as its own package, and a minimal
+    # install does NOT have it (measured on the node image).
+    - name: Install systemd-timesyncd
+      ansible.builtin.apt:
+        name: systemd-timesyncd
+        state: present
+
+    # The package ships no conf.d for timesyncd (measured) - create it.
+    - name: Ensure the drop-in directory exists
+      ansible.builtin.file:
+        path: "{{ time_sync_dropin | dirname }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Pin the NTP servers in their own drop-in
+      ansible.builtin.copy:
+        dest: "{{ time_sync_dropin }}"
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          # Managed by Ansible (time_sync role). Edit the role, not this file.
+          # The clock is a security control: certificate windows, Kerberos
+          # lifetimes, TOTP and log correlation all depend on it. Explicit
+          # servers, not fallbacks.
+          [Time]
+          NTP={{ time_sync_ntp }}
+          FallbackNTP={{ time_sync_fallback }}
+      register: time_sync_dropin_result
+
+    # The package preset already enables the unit (measured) - the module
+    # asserts it, so a second pass stays at changed=0.
+    - name: Enable systemd-timesyncd at boot
+      ansible.builtin.systemd_service:
+        name: systemd-timesyncd
+        enabled: true
+
+    - name: Read the service states (is timesyncd running?)
+      ansible.builtin.service_facts:
+
+    # Deliberately NOT `systemd_service: state: started`, and the repo's
+    # first noqa, argued: in a container the unit stays inactive after a
+    # successful (rc 0) start - systemd's own ConditionVirtualization - so
+    # the module would issue the start on EVERY pass and the changed=0 gate
+    # dies. The module cannot express "attempt, and count the change only
+    # if the clock actually came alive"; this shell can: in a container the
+    # attempt is rc 0, the unit stays inactive by systemd's own condition,
+    # and nothing is marked changed - on a real machine the first pass
+    # flips it to active and THAT is the change.
+    - name: Start (or restart after a config change) systemd-timesyncd # noqa: command-instead-of-module
+      ansible.builtin.shell:
+        cmd: |
+          systemctl {{ 'restart' if time_sync_dropin_result.changed else 'start' }} systemd-timesyncd
+          systemctl is-active systemd-timesyncd || true
+      when: >-
+        time_sync_dropin_result.changed
+        or ansible_facts.services['systemd-timesyncd.service'].state | default('stopped') != 'running'
+      register: time_sync_start
+      changed_when: time_sync_start.stdout_lines[-1] == 'active'
+
+    - name: Detect a container (for the honest note below)
+      ansible.builtin.command: systemd-detect-virt --container
+      register: time_sync_virt
+      changed_when: false
+      failed_when: false
+      check_mode: false
+
+    - name: Container note - systemd keeps timesyncd inactive here BY DESIGN
+      ansible.builtin.debug:
+        msg: >-
+          container detected - ConditionVirtualization=!container: the clock
+          belongs to the host; config staged and enabled for real boots
+      when: time_sync_virt.rc == 0

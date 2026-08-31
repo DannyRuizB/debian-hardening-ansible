@@ -53,6 +53,12 @@
     # sweep re-tightened what pass 1's purge made apt write. Mirrors step 36
     # in the Bash twin.
     - legacy_protocols
+    # Time synchronization installs a package, and apt writes /var/log/apt
+    # with loose modes on every install - so it must run BEFORE the log
+    # sweep, the same ordering rule auditd and legacy_protocols follow (the
+    # changed=0 gate caught them; this role learns from their scar).
+    # Mirrors step 41 in the Bash twin.
+    - time_sync
     - log_permissions
     - logrotate_perms
     # Homes touch /home, not /var/log, so running after the log sweep is

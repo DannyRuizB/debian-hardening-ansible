@@ -1113,6 +1113,32 @@ on_node rm -f /tmp/dh-ansible-probe 2>/dev/null || true
 expect_ok "apt still installs packages with /tmp noexec (bsdutils reinstalled)" \
   sudo DEBIAN_FRONTEND=noninteractive apt-get install --reinstall -y bsdutils
 
+echo "== time_sync: the clock is a security control =="
+expect_ok "systemd-timesyncd is installed" dpkg -s systemd-timesyncd
+expect_line "the drop-in pins explicit NTP servers" \
+  '^NTP=.*debian\.pool\.ntp\.org' sudo cat /etc/systemd/timesyncd.conf.d/99-hardening.conf
+expect_line "systemd-timesyncd is enabled at boot" '^enabled$' sudo systemctl is-enabled systemd-timesyncd
+# The honesty fork, measured while designing the role: timesyncd ships
+# ConditionVirtualization=!container - in a container systemd itself keeps
+# the unit inactive BY DESIGN (one kernel clock, and it belongs to the
+# host). ConditionResult reads over systemd's private socket, no dbus.
+if on_node systemd-detect-virt --container --quiet 2>/dev/null; then
+  expect_line "container: systemd skips timesyncd via its own condition (the honest skip, not a crash)" \
+    '^ConditionResult=no$' sudo systemctl show systemd-timesyncd -p ConditionResult
+else
+  expect_line "systemd-timesyncd is active" '^active$' sudo systemctl is-active systemd-timesyncd
+  synced=no
+  for _ in $(seq 1 30); do
+    if on_node test -f /run/systemd/timesync/synchronized 2>/dev/null; then synced=yes; break; fi
+    sleep 2
+  done
+  if [ "$synced" = yes ]; then
+    pass "the clock actually synchronized (/run/systemd/timesync/synchronized exists)"
+  else
+    fail "the clock actually synchronized (/run/systemd/timesync/synchronized exists)"
+  fi
+fi
+
 echo "== Fail2Ban really bans =="
 # Attack with a mix of NON-existent usernames (root/admin/oracle/...), the way a
 # real bot does. These log as 'Invalid user' from the sshd-session process on
