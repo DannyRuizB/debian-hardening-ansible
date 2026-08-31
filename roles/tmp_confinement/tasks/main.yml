@@ -1,0 +1,81 @@
+---
+# /tmp confinement — mirrors step 40 of harden.sh in the sibling Bash repo:
+# /tmp gains nodev,nosuid,noexec, pinned in fstab and applied live. See
+# defaults/main.yml for the story (and for why "breaks installers" was
+# folklore this role gets to retire).
+#
+# Debian 13 mounts /tmp as tmpfs by default (systemd's tmp.mount:
+# nosuid,nodev — but NO noexec); older installs have /tmp as a plain
+# directory on the root filesystem. Both are handled below with the exact
+# shape of the mount_options role: an fstab entry wins over the stock
+# tmp.mount (the fstab generator turns it into the unit), state: mounted
+# takes the plain directory case (a fresh tmpfs SHADOWS existing content
+# rather than deleting it — /tmp is ephemeral by contract, and a reboot
+# would have emptied it anyway), and a guarded remount corrects live drift.
+
+# An admin may already have /tmp pinned — its own partition, a custom size=.
+# Read the current options so the hardened entry keeps them and only the
+# missing flags are added. Read-only, and a later task needs the result even
+# during a dry-run, hence check_mode: false.
+- name: Read any existing /tmp options from fstab
+  ansible.builtin.command: awk '$1 !~ /^#/ && $2 == "/tmp" {print $4; exit}' /etc/fstab
+  register: tmp_confinement_existing
+  changed_when: false
+  check_mode: false
+
+# An existing entry may be a real partition (ext4), not tmpfs — read the
+# fstab device and fstype too, so the pin edits only the options field and
+# the filesystem stays whatever it is.
+- name: Read any existing /tmp source and fstype from fstab
+  ansible.builtin.command: awk '$1 !~ /^#/ && $2 == "/tmp" {print $1, $3; exit}' /etc/fstab
+  register: tmp_confinement_existing_src
+  changed_when: false
+  check_mode: false
+
+# Deliberately NOT union(): set filters lost their stable order in modern
+# ansible-core (per-process hash randomization), so union could emit the
+# options in a different order on every run — rewriting fstab each time and
+# breaking idempotence. reject('in', ...) keeps order deterministic.
+- name: Split the existing options into a list
+  ansible.builtin.set_fact:
+    tmp_confinement_existing_list: "{{ (tmp_confinement_existing.stdout or tmp_confinement_base_opts).split(',') }}"
+
+- name: Merge the hardening flags into the existing options
+  ansible.builtin.set_fact:
+    tmp_confinement_opts: >-
+      {{ (tmp_confinement_existing_list
+          + (tmp_confinement_flags | reject('in', tmp_confinement_existing_list) | list))
+         | join(',') }}
+
+- name: Pin /tmp in fstab and mount it with the hardened options
+  ansible.posix.mount:
+    path: /tmp
+    src: "{{ (tmp_confinement_existing_src.stdout.split(' ') | first) if tmp_confinement_existing_src.stdout else 'tmpfs' }}"
+    fstype: "{{ (tmp_confinement_existing_src.stdout.split(' ') | last) if tmp_confinement_existing_src.stdout else 'tmpfs' }}"
+    opts: "{{ tmp_confinement_opts }}"
+    state: mounted
+
+# The mount module keys its remount off the fstab line — if someone later
+# remounted /tmp with exec but fstab never drifted, it would look "ok".
+# Check the LIVE options and remount only when a flag is actually missing,
+# so a second pass changes nothing and live drift still gets corrected.
+- name: Read the live mount options of /tmp
+  ansible.builtin.command: findmnt -no OPTIONS /tmp
+  register: tmp_confinement_live
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+# state: remounted applies the opts live without touching fstab. It always
+# reports "changed", so the when-guard above is what keeps a second pass at
+# changed=0 — it only fires when a flag is genuinely missing.
+- name: Remount /tmp if a hardening flag is missing live
+  ansible.posix.mount:
+    path: /tmp
+    src: "{{ (tmp_confinement_existing_src.stdout.split(' ') | first) if tmp_confinement_existing_src.stdout else 'tmpfs' }}"
+    fstype: "{{ (tmp_confinement_existing_src.stdout.split(' ') | last) if tmp_confinement_existing_src.stdout else 'tmpfs' }}"
+    opts: "{{ tmp_confinement_opts }}"
+    state: remounted
+  when:
+    - tmp_confinement_live.rc == 0
+    - tmp_confinement_flags | difference(tmp_confinement_live.stdout.split(',')) | length > 0
