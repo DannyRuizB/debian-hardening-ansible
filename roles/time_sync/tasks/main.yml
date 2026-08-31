@@ -28,16 +28,28 @@
     msg: "a chrony/ntpsec unit is active - leaving it in charge (one clock daemon is the point)"
   when: time_sync_other.stdout != ''
 
-- name: Configure systemd-timesyncd (skipped when another daemon keeps time)
+# Debian 13 ships systemd-timesyncd as its own package, and a minimal install
+# does NOT have it (measured on the node image). Registered so the config
+# tasks can skip themselves in check mode on a fresh node, where the package
+# was never really installed and the unit does not exist to manage.
+- name: Install systemd-timesyncd
+  ansible.builtin.apt:
+    name: systemd-timesyncd
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+  register: time_sync_pkg
   when: time_sync_other.stdout == ''
-  block:
-    # Debian 13 ships systemd-timesyncd as its own package, and a minimal
-    # install does NOT have it (measured on the node image).
-    - name: Install systemd-timesyncd
-      ansible.builtin.apt:
-        name: systemd-timesyncd
-        state: present
 
+- name: Configure systemd-timesyncd (skipped when another daemon keeps time)
+  # ...and skipped in check mode on a fresh node: the package above was not
+  # really installed there, so its conf.d, unit and service facts are all
+  # absent (the fail2ban/auditd/unattended_upgrades guard). A real run
+  # installs first and configures normally.
+  when:
+    - time_sync_other.stdout == ''
+    - not (ansible_check_mode and time_sync_pkg.changed)
+  block:
     # The package ships no conf.d for timesyncd (measured) - create it.
     - name: Ensure the drop-in directory exists
       ansible.builtin.file:
