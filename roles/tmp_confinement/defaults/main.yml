@@ -1,0 +1,18 @@
+---
+# /tmp confinement (CIS 1.1.2.1) — the mount_options role done to the OTHER
+# world-writable directory every process can reach. That role once left /tmp
+# alone citing "noexec /tmp breaks installers"; measured since (on the CI
+# node): apt and dpkg never execute from /tmp — maintainer scripts run from
+# /var/lib/dpkg, archives unpack under /var/cache/apt — and verify.sh proves
+# it every run by reinstalling a real package on the confined node. What
+# noexec /tmp actually stops is the dropper's move: stage the payload in the
+# one directory anyone can write, run it from there. The genuine casualty is
+# the vendor .run bundle that unpacks-and-executes from /tmp — skip the role
+# for such hosts (TMPDIR redirects the well-behaved ones anyway).
+tmp_confinement_flags: [nodev, nosuid, noexec]
+
+# Base options when /tmp has no fstab entry yet: what systemd's stock
+# tmp.mount uses (mode/strictatime) plus its RAM cap — a runaway /tmp must
+# not eat all the memory. An existing entry keeps its own options and only
+# gains the missing flags.
+tmp_confinement_base_opts: mode=1777,strictatime,size=50%

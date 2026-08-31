@@ -84,3 +84,7 @@
     # Exploit mitigations: its own sysctl drop-in (ASLR, kexec, unprivileged
     # BPF, JIT hardening, perf) — position free. Mirrors step 39.
     - exploit_mitigations
+    # /tmp confinement: fstab + a mount of its own, touches nothing another
+    # role owns (mount_options only handles /dev/shm), position free.
+    # Mirrors step 40 in the Bash twin.
+    - tmp_confinement

@@ -206,6 +206,17 @@ done
 on_node grep -qE '^[^#].*[[:space:]]/dev/shm[[:space:]].*nodev' /etc/fstab \
   && P "/dev/shm options pinned in fstab (survive reboots)" \
   || W "/dev/shm options not in fstab" "pin 'tmpfs /dev/shm tmpfs defaults,nodev,nosuid,noexec 0 0'"
+# Same story for the other world-writable directory (CIS 1.1.2.1).
+tmp_opts=$(on_node findmnt -no OPTIONS /tmp)
+for opt in nodev nosuid noexec; do
+  case ",$tmp_opts," in
+    *",$opt,"*) P "/tmp mounted with $opt";;
+    *) W "/tmp is missing $opt" "run the tmp_confinement role";;
+  esac
+done
+on_node grep -qE '^[^#].*[[:space:]]/tmp[[:space:]].*nodev' /etc/fstab \
+  && P "/tmp options pinned in fstab (survive reboots)" \
+  || W "/tmp options not in fstab" "pin 'tmpfs /tmp tmpfs mode=1777,strictatime,nodev,nosuid,noexec,size=50% 0 0'"
 
 echo "-- Warning banners (CIS 1.7) --------------------------------"
 [ "$(val banner)" != "none" ] && [ -n "$(val banner)" ] \
