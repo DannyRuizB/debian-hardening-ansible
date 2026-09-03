@@ -1,0 +1,17 @@
+---
+# /var/tmp confinement — mirrors step 43 of harden.sh in the sibling Bash
+# repo (CIS 1.1.4.x). See defaults/main.yml for the bind-mount reasoning.
+#
+# ansible.posix.mount with state=mounted does the whole job idempotently:
+# it writes (or completes) the fstab line AND mounts it live — for a bind
+# mount that is `mount --bind` plus a `remount,bind,<opts>` when the
+# options differ (measured: pass 1 changed, pass 2 changed=0, the mount
+# stacked exactly once). fstype `none` + opts `bind,…` is the fstab spelling
+# `/var/tmp /var/tmp none bind,nodev,nosuid,noexec 0 0`.
+- name: Bind-mount /var/tmp onto itself with nodev,nosuid,noexec (pinned in fstab)
+  ansible.posix.mount:
+    path: /var/tmp
+    src: /var/tmp
+    fstype: none
+    opts: "{{ var_tmp_confinement_options }}"
+    state: mounted

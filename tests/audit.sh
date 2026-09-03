@@ -207,6 +207,21 @@ on_node grep -qE '^[^#].*[[:space:]]/dev/shm[[:space:]].*nodev' /etc/fstab \
   && P "/dev/shm options pinned in fstab (survive reboots)" \
   || W "/dev/shm options not in fstab" "pin 'tmpfs /dev/shm tmpfs defaults,nodev,nosuid,noexec 0 0'"
 
+# /var/tmp: the world-writable directory that persists across reboots. A
+# plain directory has no mount options at all; the role gives it a bind
+# mount of its own and tightens that (CIS 1.1.4.x).
+opts_vt=$(on_node findmnt -no OPTIONS /var/tmp)
+if [ -z "$opts_vt" ]; then
+  W "/var/tmp is a plain directory (no mount, no options)" "run the var_tmp_confinement role: bind mount with nodev,nosuid,noexec"
+else
+  for o in nodev nosuid noexec; do
+    case ",$opts_vt," in
+      *",$o,"*) P "/var/tmp is mounted $o";;
+      *)        W "/var/tmp is mounted without $o" "mount -o remount,bind,$o /var/tmp and pin it in fstab (var_tmp_confinement role)";;
+    esac
+  done
+fi
+
 echo "-- Time synchronization (CIS 2.1) ----------------------------"
 # One clock daemon, configured: certificate windows, Kerberos lifetimes,
 # TOTP and log correlation are all comparisons against the clock.
