@@ -235,6 +235,20 @@ jobs:
           grep "^dhlegacy:" /etc/passwd | cut -c1-24
           SH
 
+      # service_purge offenders - the network daemons a server runs because a
+      # package pulled them in. The node image ships none, so install the three
+      # (cups brings cups-daemon, the actual cupsd - the measured trap: purging
+      # `cups` alone leaves it behind) before any pass, --check included.
+      - name: Plant attack-surface services for service_purge to remove
+        run: |
+          docker exec -i dh-test-node bash -s <<'SH'
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get install -y -qq --no-install-recommends avahi-daemon cups rpcbind >/dev/null 2>&1
+          systemctl start avahi-daemon rpcbind cups 2>/dev/null || true
+          dpkg -l avahi-daemon cups cups-daemon rpcbind | awk '/^ii/{print $2}' | tr '\n' ' '; echo
+          ss -lntu | grep -E ':(5353|631|111)[[:space:]]' || echo "(no listener yet - units may need a moment)"
+          SH
+
       # apt_trust offender — the broken-mirror workaround that outlives the
       # mirror: both apt trust gates loosened in an apt.conf.d file. Measured
       # on a stock node: with these two lines a repository with no Release

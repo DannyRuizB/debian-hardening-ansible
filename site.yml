@@ -102,3 +102,8 @@
     # touches nothing another role owns (tmp_confinement handles /tmp,
     # mount_options /dev/shm), position free. Mirrors step 43.
     - var_tmp_confinement
+    # Attack-surface services: apt purge of three daemons. Runs apt (which
+    # writes /var/log) — but log_permissions has long finished by here and
+    # sweeps only what exists at ITS run; the purge creates no new log files,
+    # so the position at the end is safe. Mirrors step 44.
+    - service_purge

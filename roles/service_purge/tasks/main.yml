@@ -1,0 +1,25 @@
+---
+# Attack-surface services — mirrors step 44 of harden.sh in the sibling Bash
+# repo (CIS 2.2). See defaults/main.yml for the three daemons and the trap.
+
+# Stop and disable first, warn-never-fail: on a fresh node none of these
+# units exist, and the apt module below removes the packages either way.
+- name: Stop and disable the attack-surface units that exist
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    state: stopped
+    enabled: false
+  loop: "{{ service_purge_units }}"
+  register: service_purge_stop
+  failed_when: false
+  changed_when: service_purge_stop.changed | default(false)
+  when: not ansible_check_mode
+
+# The apt module with state=absent swallows a known-but-absent name as
+# changed=false (measured in the legacy_protocols role), so this is
+# idempotent by construction; purge drops the config files too.
+- name: Purge avahi-daemon, cups (metapackage AND daemon), cups-browsed and rpcbind
+  ansible.builtin.apt:
+    name: "{{ service_purge_packages }}"
+    state: absent
+    purge: true
