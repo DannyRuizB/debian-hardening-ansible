@@ -1,0 +1,20 @@
+---
+# Apt source trust (CIS 1.2) — mirrors step 42 of harden.sh in the sibling
+# Bash repo. The package manager is the one channel that installs root-owned
+# code BY DESIGN, and apt's signature check is what makes it a channel and
+# not a hole. Two gates, both MEASURED on a stock Debian 13 node against a
+# local repository with no Release file:
+#   - Acquire::AllowInsecureRepositories gates the INDEX: stock apt refuses
+#     the repo at `apt-get update` (rc 100); loosened — the broken-mirror
+#     workaround — the index is fetched behind a one-line warning.
+#   - APT::Get::AllowUnauthenticated gates the INSTALL: stock apt refuses
+#     ("There were unauthenticated packages and -y was used"); loosened, the
+#     package installs with "Authentication warning overridden" — and this
+#     gate is what stands between a stale insecure index and dpkg.
+# The defaults ARE strict; the point of pinning is PRECEDENCE: apt.conf.d is
+# read in lexical order and the LAST setting wins, so the 99- pin overrides
+# any loosening left in an earlier file (the CI plants one).
+# Check-Valid-Until refuses an EXPIRED Release file — the freeze attack, a
+# validly-signed stale snapshot that keeps a known-vulnerable version
+# installable.
+apt_trust_dropin: /etc/apt/apt.conf.d/99-hardening-apt-trust

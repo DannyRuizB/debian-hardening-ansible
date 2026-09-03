@@ -94,3 +94,7 @@
     # role owns (mount_options only handles /dev/shm), position free.
     # Mirrors step 40 in the Bash twin.
     - tmp_confinement
+    # Apt source trust: one apt.conf.d drop-in and two read-only greps — it
+    # runs no apt of its own (the gates apply to whoever calls apt next) and
+    # touches nothing another role owns, position free. Mirrors step 42.
+    - apt_trust

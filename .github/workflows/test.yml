@@ -235,6 +235,21 @@ jobs:
           grep "^dhlegacy:" /etc/passwd | cut -c1-24
           SH
 
+      # apt_trust offender — the broken-mirror workaround that outlives the
+      # mirror: both apt trust gates loosened in an apt.conf.d file. Measured
+      # on a stock node: with these two lines a repository with no Release
+      # file is fetched behind a one-line warning and its packages install
+      # with "Authentication warning overridden". The role's 99- pin must beat
+      # it (apt.conf.d is read in order, last setting wins) and verify reads
+      # the EFFECTIVE config — this plant is what makes that check a proof
+      # instead of a restatement of the defaults.
+      - name: Plant loosened apt trust gates for apt_trust to override
+        run: |
+          docker exec -i dh-test-node bash -s <<'SH'
+          printf 'Acquire::AllowInsecureRepositories "true";\nAPT::Get::AllowUnauthenticated "true";\n' > /etc/apt/apt.conf.d/90-weak-mirror-workaround
+          apt-config dump | grep -E "AllowInsecureRepositories|AllowUnauthenticated"
+          SH
+
       # The CI key doubles as the admin user's key. Written as a vars file
       # because -e key=value can't carry the spaces of an OpenSSH public key.
       - name: Prepare the admin user's public key as a vars file

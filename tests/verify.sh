@@ -1139,6 +1139,64 @@ else
   fi
 fi
 
+echo "== apt_trust: the package manager's trust gates =="
+expect_line "the apt trust drop-in pins AllowInsecureRepositories false" \
+  '^Acquire::AllowInsecureRepositories "false";' sudo cat /etc/apt/apt.conf.d/99-hardening-apt-trust
+# Effective, not just written: apt-config dump is apt's merged view of every
+# conf file - the `sshd -T` of apt - so it shows whether the 99- pin actually
+# beat the loosening the CI planted in an EARLIER file (apt.conf.d is read in
+# lexical order, last setting wins).
+expect_line "effective config: unsigned repositories refused (the planted 90-weak loosening is overridden)" \
+  '^Acquire::AllowInsecureRepositories "false";' apt-config dump
+expect_line "effective config: unauthenticated installs refused" \
+  '^APT::Get::AllowUnauthenticated "false";' apt-config dump
+expect_line "effective config: expired Release files refused (Check-Valid-Until)" \
+  '^Acquire::Check-Valid-Until "true";' apt-config dump
+# Behavioural, both gates, against a repository built on the node with NO
+# Release file (a hand-made .deb + Packages index, no network needed), with
+# apt's directories redirected so the real lists and cache stay untouched:
+#  1. the INDEX gate: apt-get update must refuse the repo, and the same probe
+#     with the gate opened on the command line must succeed - a refusal only
+#     means something next to an acceptance (it proves the repo was fine);
+#  2. the INSTALL gate: with the index fetched through the opened gate (the
+#     stale-list scenario), a REAL install must be refused as unauthenticated.
+#     Measured: `apt-get -s` (simulate) prints "Inst" and exits 0 regardless,
+#     so a dry run cannot carry this check - only the real call does.
+# World-readable on purpose: apt fetches file:// as the _apt user, and the
+# umask role (027) would otherwise hide the probe from it.
+on_node sudo bash -s <<'SH' >/dev/null 2>&1 || true
+set -e
+umask 022
+d=/tmp/dh-apt-probe
+rm -rf "$d"
+mkdir -p "$d/pkg/DEBIAN" "$d/pkg/usr/share/doc/dh-apt-probe" "$d/lists/partial" "$d/archives/partial"
+printf 'Package: dh-apt-probe\nVersion: 1.0\nArchitecture: all\nMaintainer: probe <probe@localhost>\nDescription: apt trust probe (verify.sh, harmless)\n' > "$d/pkg/DEBIAN/control"
+echo probe > "$d/pkg/usr/share/doc/dh-apt-probe/README"
+dpkg-deb -b "$d/pkg" "$d/dh-apt-probe_1.0_all.deb" >/dev/null
+cd "$d"
+{ dpkg-deb -f dh-apt-probe_1.0_all.deb
+  printf 'Filename: ./dh-apt-probe_1.0_all.deb\nSize: %s\nSHA256: %s\n' "$(stat -c %s dh-apt-probe_1.0_all.deb)" "$(sha256sum dh-apt-probe_1.0_all.deb | cut -d' ' -f1)"
+} > Packages
+echo "deb [arch=all] file:$d ./" > "$d/probe.list"
+chmod -R a+rX "$d"
+SH
+probe_opts=(-o Dir::Etc::SourceList=/tmp/dh-apt-probe/probe.list -o Dir::Etc::SourceParts=/nonexistent
+            -o Dir::State::Lists=/tmp/dh-apt-probe/lists -o Dir::Cache::Archives=/tmp/dh-apt-probe/archives)
+if on_node sudo apt-get update "${probe_opts[@]}" >/dev/null 2>&1; then
+  fail "a repository with no Release file is refused at apt-get update (index gate)"
+else
+  pass "a repository with no Release file is refused at apt-get update (index gate)"
+fi
+expect_ok "...and the same probe with the gate opened on the command line succeeds (the repo itself was fine)" \
+  sudo apt-get update "${probe_opts[@]}" -o Acquire::AllowInsecureRepositories=true
+if on_node sudo DEBIAN_FRONTEND=noninteractive apt-get install -y "${probe_opts[@]}" dh-apt-probe >/dev/null 2>&1; then
+  fail "a package from the unsigned index is refused as unauthenticated (install gate, stale-list scenario)"
+  on_node sudo DEBIAN_FRONTEND=noninteractive apt-get purge -y dh-apt-probe >/dev/null 2>&1 || true
+else
+  pass "a package from the unsigned index is refused as unauthenticated (install gate, stale-list scenario)"
+fi
+on_node sudo rm -rf /tmp/dh-apt-probe 2>/dev/null || true
+
 echo "== Fail2Ban really bans =="
 # Attack with a mix of NON-existent usernames (root/admin/oracle/...), the way a
 # real bot does. These log as 'Invalid user' from the sshd-session process on

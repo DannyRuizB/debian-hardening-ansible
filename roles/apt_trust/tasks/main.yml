@@ -1,0 +1,62 @@
+---
+# Apt source trust — mirrors step 42 of harden.sh in the sibling Bash repo
+# (CIS 1.2). See defaults/main.yml for the two gates and the measurements.
+- name: Pin apt's trust gates strict in their own drop-in (apt.conf.d, last file wins)
+  ansible.builtin.copy:
+    dest: "{{ apt_trust_dropin }}"
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      // Managed by Ansible (apt_trust role). Edit the role, not this file.
+      // apt.conf.d is read in lexical order and the LAST setting wins: this file
+      // pins the trust gates strict over anything loosened in an earlier file.
+      Acquire::AllowInsecureRepositories "false";
+      Acquire::AllowDowngradeToInsecureRepositories "false";
+      Acquire::AllowWeakRepositories "false";
+      APT::Get::AllowUnauthenticated "false";
+      Acquire::Check-Valid-Until "true";
+
+# Report, never edit. A loosening in ANOTHER conf file is overridden by the
+# pin (unless it sorts after 99-hardening — rare, and named here so it is not
+# silent); a trusted=yes source is a per-source admin decision that BYPASSES
+# every gate (measured: the same unsigned repo installs silently under
+# [trusted=yes], pin and all). Shell warn-never-fail: grep's rc 1 (no match)
+# is the good outcome, so the pipeline ends in `|| true`.
+- name: Look for apt conf files that loosen the trust gates
+  ansible.builtin.shell:
+    executable: /bin/bash
+    cmd: |
+      set -o pipefail
+      grep -rlsiE \
+        '(AllowInsecureRepositories|AllowUnauthenticated|AllowDowngradeToInsecureRepositories|AllowWeakRepositories)[[:space:]]+"?(true|1|yes)' \
+        /etc/apt/apt.conf /etc/apt/apt.conf.d/ | grep -vx '{{ apt_trust_dropin }}' || true
+  register: apt_trust_loose
+  changed_when: false
+  check_mode: false
+
+- name: Warn about trust gates loosened elsewhere (overridden by the pin, but somebody meant it)
+  ansible.builtin.debug:
+    msg: >-
+      apt trust gates loosened in {{ apt_trust_loose.stdout_lines | join(', ') }}
+      - overridden by {{ apt_trust_dropin }}; review the workaround
+  when: apt_trust_loose.stdout != ''
+
+- name: Look for sources marked trusted=yes (they bypass every gate)
+  ansible.builtin.shell:
+    executable: /bin/bash
+    cmd: |
+      set -o pipefail
+      grep -rlsE '^[[:space:]]*deb[^#]*\[[^]]*trusted=yes|^[[:space:]]*Trusted:[[:space:]]*yes' \
+        /etc/apt/sources.list /etc/apt/sources.list.d/ || true
+  register: apt_trust_trusted
+  changed_when: false
+  check_mode: false
+
+- name: Warn about trusted=yes sources (an explicit admin decision, left alone)
+  ansible.builtin.debug:
+    msg: >-
+      sources marked trusted=yes bypass every apt trust gate:
+      {{ apt_trust_trusted.stdout_lines | join(', ') }} - review each;
+      a local mirror should carry its own signing key
+  when: apt_trust_trusted.stdout != ''
