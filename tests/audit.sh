@@ -242,6 +242,32 @@ on_node grep -qE '^[^#].*[[:space:]]/tmp[[:space:]].*nodev' /etc/fstab \
   && P "/tmp options pinned in fstab (survive reboots)" \
   || W "/tmp options not in fstab" "pin 'tmpfs /tmp tmpfs mode=1777,strictatime,nodev,nosuid,noexec,size=50% 0 0'"
 
+echo "-- Apt source trust (CIS 1.2) ---------------------------------"
+# The package manager installs root-owned code by design; the signature check
+# is what makes it a channel and not a hole. Values read from apt-config dump,
+# apt's merged view of every conf file (read in order, last setting wins).
+apt_eff() { on_node apt-config dump | awk -v k="$1" '$1==k{gsub(/[";]/,"",$2); print $2; exit}'; }
+v=$(apt_eff Acquire::AllowInsecureRepositories)
+case "$v" in
+  false|0) P "Unsigned repositories are refused (AllowInsecureRepositories=$v)";;
+  *)       F "Unsigned repositories are ACCEPTED (AllowInsecureRepositories=$v)" "run the apt_trust role";;
+esac
+v=$(apt_eff APT::Get::AllowUnauthenticated)
+case "$v" in
+  false|0) P "Unauthenticated installs are refused (AllowUnauthenticated=$v)";;
+  "")      W "AllowUnauthenticated is not pinned (default false, one stray conf line from true)" "pin it in apt.conf.d (apt_trust role)";;
+  *)       F "Unauthenticated installs are ACCEPTED (AllowUnauthenticated=$v)" "run the apt_trust role";;
+esac
+v=$(apt_eff Acquire::Check-Valid-Until)
+case "$v" in
+  true|1) P "Expired Release files are refused (Check-Valid-Until pinned)";;
+  *)      W "Check-Valid-Until is not pinned (default true; a freeze attack needs it off)" "pin it in apt.conf.d (apt_trust role)";;
+esac
+trusted_src=$(on_node grep -rlsE '^[[:space:]]*deb[^#]*\[[^]]*trusted=yes|^[[:space:]]*Trusted:[[:space:]]*yes' /etc/apt/sources.list /etc/apt/sources.list.d/ | tr '\n' ' ')
+[ -z "$trusted_src" ] \
+  && P "No source bypasses signature checking with trusted=yes" \
+  || W "Sources marked trusted=yes bypass every trust gate: $trusted_src" "review each; a local mirror should carry its own signing key"
+
 echo "-- Warning banners (CIS 1.7) --------------------------------"
 [ "$(val banner)" != "none" ] && [ -n "$(val banner)" ] \
   && P "sshd presents a pre-auth banner ($(val banner))" \
