@@ -1,0 +1,15 @@
+---
+# /var/tmp confinement (CIS 1.1.4.x) — mirrors step 43 of harden.sh in the
+# sibling Bash repo. The THIRD world-writable directory every process can
+# reach (after /dev/shm and /tmp), and the one that PERSISTS across reboots —
+# which is exactly why a dropper that wants to survive one stages there.
+# Debian keeps /var/tmp as a plain directory on the root filesystem, so there
+# is nothing to remount: the directory is BIND-MOUNTED onto itself and the
+# bind is tightened — mount options belong to a mount, not to a directory,
+# and a bind gives the directory a mount of its own without a partition.
+# MEASURED (privileged debian:13): the options land; a binary staged there
+# dies with "Permission denied"; a file written before the bind is the same
+# file after it (bind, not tmpfs — persistence intact); the fstab line
+# applies all of it in one go at boot; and `mount -a` on top of a manual
+# bind STACKS a second mount — so mount only when not a mountpoint yet.
+var_tmp_confinement_options: "bind,nodev,nosuid,noexec"

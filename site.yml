@@ -98,3 +98,7 @@
     # runs no apt of its own (the gates apply to whoever calls apt next) and
     # touches nothing another role owns, position free. Mirrors step 42.
     - apt_trust
+    # /var/tmp confinement: a bind mount of its own plus an fstab line,
+    # touches nothing another role owns (tmp_confinement handles /tmp,
+    # mount_options /dev/shm), position free. Mirrors step 43.
+    - var_tmp_confinement

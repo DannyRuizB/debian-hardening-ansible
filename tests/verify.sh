@@ -1197,6 +1197,28 @@ else
 fi
 on_node sudo rm -rf /tmp/dh-apt-probe 2>/dev/null || true
 
+echo "== var_tmp_confinement: the persistent staging ground is a dead end =="
+expect_line "fstab pins the /var/tmp bind with nodev,nosuid,noexec" \
+  "bind,nodev,nosuid,noexec" \
+  grep -E "'^[^#].*[[:space:]]/var/tmp[[:space:]]'" /etc/fstab
+expect_ok "/var/tmp is a mountpoint of its own (the bind)" mountpoint -q /var/tmp
+# A bind, not a tmpfs: the source is the root filesystem's own /var/tmp
+# subtree (findmnt prints it as DEVICE[/var/tmp]) - the files persist.
+expect_line "/var/tmp is bind-mounted from itself (persistence intact, not a tmpfs)" \
+  '\[/var/tmp\]$' findmnt -no SOURCE /var/tmp
+expect_line "/var/tmp is live-mounted nodev" ",nodev,|,nodev$|^nodev," findmnt -no OPTIONS /var/tmp
+expect_line "/var/tmp is live-mounted nosuid" ",nosuid,|,nosuid$|^nosuid," findmnt -no OPTIONS /var/tmp
+expect_line "/var/tmp is live-mounted noexec" ",noexec,|,noexec$|^noexec," findmnt -no OPTIONS /var/tmp
+# Functional: the dropper's move against the directory that SURVIVES a
+# reboot - stage a binary there, run it from there. Must die on noexec.
+on_node cp /bin/true /var/tmp/dh-probe 2>/dev/null || true
+if on_node /var/tmp/dh-probe >/dev/null 2>&1; then
+  fail "a binary staged in /var/tmp cannot execute (noexec enforced)"
+else
+  pass "a binary staged in /var/tmp cannot execute (noexec enforced)"
+fi
+on_node rm -f /var/tmp/dh-probe 2>/dev/null || true
+
 echo "== Fail2Ban really bans =="
 # Attack with a mix of NON-existent usernames (root/admin/oracle/...), the way a
 # real bot does. These log as 'Invalid user' from the sshd-session process on
