@@ -1,0 +1,8 @@
+---
+# Per-session process limits — see tasks/main.yml. Root is not matched by '*'
+# on purpose (not the threat model); systemd services are not PAM sessions.
+process_limits_nproc: 4096
+process_limits_dropin: /etc/security/limits.d/99-hardening-nproc.conf
+# The stacks that must carry pam_limits for the drop-in to bite (Debian 13
+# ships it in all four - measured). Reported, never edited.
+process_limits_pam_stacks: [sshd, login, su, sudo]

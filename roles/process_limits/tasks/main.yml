@@ -1,0 +1,54 @@
+---
+# Per-session process limits — mirrors step 47 of harden.sh in the sibling Bash
+# repo. A compromised or careless account with no process cap takes the box
+# down with one line (the fork bomb) or with a runaway build. Debian ships every
+# session UNLIMITED (measured: `ulimit -u` and `ulimit -Hu` both "unlimited"
+# for a fresh user). One limits.d drop-in caps nproc for every PAM session;
+# sshd, login, su and sudo carry pam_limits in their stock Debian 13 stacks
+# (measured), so the cap lands where a compromised account arrives. Root is
+# left alone ('*' never matches root - the coredump_limits lesson - and root is
+# not the threat model); systemd services are not PAM sessions and keep their
+# own DefaultTasksMax. The HARD limit is the promise: measured, a capped
+# session can lower and re-raise its soft limit up to the hard one, but
+# `ulimit -u 8192` above it is "Operation not permitted". Measured against the
+# obvious escape too: rlimits are INHERITED, so `sudo` from a capped session
+# stays capped at 4096 - an explicit `root ... unlimited` line does not lift
+# it (pam_limits in sudo's stack cannot raise what the parent lowered). The
+# cap follows the session, sudo included; root's own logins stay unlimited.
+
+- name: Cap processes per login session in a limits.d drop-in (soft and hard)
+  ansible.builtin.copy:
+    dest: "{{ process_limits_dropin }}"
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # Managed by Ansible (process_limits role). Edit the role, not this file.
+      # Processes per login session (fork bombs, runaway spawns). Root is not
+      # matched by '*' on purpose; systemd services are not PAM sessions.
+      *    soft    nproc    {{ process_limits_nproc }}
+      *    hard    nproc    {{ process_limits_nproc }}
+
+# The drop-in only bites where pam_limits sits in the session stack. Report,
+# never edit: a stack that lost it is a decision someone took on purpose.
+- name: Find PAM stacks without pam_limits (the cap would not apply there)
+  ansible.builtin.shell:
+    executable: /bin/bash
+    cmd: |
+      set -o pipefail
+      missing=""
+      for stack in {{ process_limits_pam_stacks | join(' ') }}; do
+        [ -f "/etc/pam.d/$stack" ] || continue
+        grep -qE '^\s*session\s+required\s+pam_limits\.so' "/etc/pam.d/$stack" || missing="$missing $stack"
+      done
+      echo "${missing:-none}"
+  register: process_limits_missing
+  changed_when: false
+  check_mode: false
+
+- name: Report the PAM stacks that would ignore the cap
+  ansible.builtin.debug:
+    msg: >-
+      {{ 'pam_limits present in every session stack checked (' ~ (process_limits_pam_stacks | join(', ')) ~ ') - the cap applies at every door'
+         if process_limits_missing.stdout | trim == 'none'
+         else 'REVIEW - pam_limits missing from PAM stack(s): ' ~ (process_limits_missing.stdout | trim) ~ ' - limits.d does nothing there' }}
