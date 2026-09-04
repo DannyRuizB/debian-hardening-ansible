@@ -1,0 +1,25 @@
+---
+# SUID diet (CIS 6.1.13) — see tasks/main.yml. The five identity self-service
+# tools a key-only headless server never needs, yet ships setuid/setgid.
+suid_diet_binaries:
+  - /usr/bin/chfn
+  - /usr/bin/chsh
+  - /usr/bin/gpasswd
+  - /usr/bin/newgrp
+  - /usr/bin/expiry
+
+# Reported, never touched: every setuid-root binary OUTSIDE this list is
+# news — a package that arrived with a privilege boundary of its own.
+suid_diet_known_root:
+  - /usr/bin/su
+  - /usr/bin/sudo
+  - /usr/bin/passwd
+  - /usr/bin/mount
+  - /usr/bin/umount
+  - /usr/lib/openssh/ssh-keysign
+  # Measured on the hardened node: two more arrive with legitimate packages -
+  # exim4 (Debian's default MTA, pulled in by rkhunter/aide for their mail
+  # reports; setuid root is how an MTA delivers) and the D-Bus system
+  # activation helper. Known, so the report stays about newcomers.
+  - /usr/sbin/exim4
+  - /usr/lib/dbus-1.0/dbus-daemon-launch-helper

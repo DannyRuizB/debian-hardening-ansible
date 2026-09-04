@@ -1,0 +1,73 @@
+---
+# SUID diet — mirrors step 46 of harden.sh in the sibling Bash repo (CIS
+# 6.1.13). A setuid-root binary is code that runs as root on behalf of ANY
+# local account - the classic local-privilege-escalation surface. Debian ships
+# five of them for a human at a terminal changing their own finger info, shell
+# or group (chfn, chsh, gpasswd, newgrp setuid root; expiry setgid shadow);
+# key-only SSH and admin-set shells leave none of them a job. file_permissions
+# inventoried them; this role strips the bit.
+#
+# THE TRAP, measured on debian:13: `chmod u-s` (or ansible.builtin.file with
+# mode 0755) lasts until the next `apt-get install --reinstall passwd` - the
+# package puts 4755 back with no warning. dpkg-statoverride is the mechanism
+# dpkg itself honours: the override survived the reinstall. It is fussy too: a
+# second `--add` for an existing path aborts (rc 2), so an existing override
+# with another mode is removed first, and a matching one is left alone -
+# which is what keeps pass 2 at changed=0.
+
+- name: Read mode, owner and group of each identity tool (and whether it exists)
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop: "{{ suid_diet_binaries }}"
+  register: suid_diet_stat
+
+- name: Read the dpkg-statoverride pins that already exist
+  ansible.builtin.command: dpkg-statoverride --list
+  register: suid_diet_overrides
+  changed_when: false
+  # rc 1 = no overrides at all on this box; anything else is a real error.
+  failed_when: suid_diet_overrides.rc not in [0, 1]
+  check_mode: false
+
+# One shell per binary that is not yet on the diet: remove a stale override,
+# add the 0755 pin (--update applies the mode now), keep owner and group as
+# found (expiry is root:shadow). Skipped under --check like any command.
+- name: Strip setuid/setgid and pin 0755 with dpkg-statoverride (survives package upgrades)
+  ansible.builtin.shell:
+    executable: /bin/bash
+    cmd: |
+      set -euo pipefail
+      f='{{ item.stat.path }}'
+      if dpkg-statoverride --list "$f" >/dev/null 2>&1; then
+        dpkg-statoverride --remove "$f" >/dev/null
+      fi
+      dpkg-statoverride --update --add '{{ item.stat.pw_name }}' '{{ item.stat.gr_name }}' 0755 "$f" >/dev/null
+      echo "APPLIED $f"
+  loop: "{{ suid_diet_stat.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when:
+    - item.stat.exists
+    - not (item.stat.mode == '0755'
+           and (item.stat.pw_name ~ ' ' ~ item.stat.gr_name ~ ' 755 ' ~ item.stat.path) in suid_diet_overrides.stdout_lines)
+  register: suid_diet_apply
+  changed_when: "'APPLIED' in (suid_diet_apply.stdout | default(''))"
+
+- name: Inventory the setuid-root binaries that remain (report only)
+  ansible.builtin.shell:
+    executable: /bin/bash
+    cmd: |
+      set -o pipefail
+      find / -xdev -type f -perm -4000 -user root 2>/dev/null | sort
+  register: suid_diet_root
+  changed_when: false
+  check_mode: false
+
+- name: Report setuid-root binaries outside the known list (never touched)
+  ansible.builtin.debug:
+    msg: >-
+      {{ ('REVIEW - setuid-root outside the known list: ' ~ (suid_diet_extra | join(' ')))
+         if (suid_diet_extra | length) > 0
+         else 'every remaining setuid-root binary is on the known list (su, sudo, passwd, mount, umount, ssh-keysign, exim4, dbus helper)' }}
+  vars:
+    suid_diet_extra: "{{ suid_diet_root.stdout_lines | default([]) | difference(suid_diet_known_root) }}"

@@ -273,6 +273,32 @@ else
   W "kernel.unprivileged_userns_clone is $uns, not 0" "run the kernel_surface role"
 fi
 
+echo "-- SUID diet (CIS 6.1.13) ----------------------------------"
+# Five identity self-service tools a headless server never needs, stripped
+# and pinned; everything else setuid root compared against a known list.
+diet_bad=""
+for f in /usr/bin/chfn /usr/bin/chsh /usr/bin/gpasswd /usr/bin/newgrp /usr/bin/expiry; do
+  m=$(on_node stat -c %a "$f" 2>/dev/null || true)
+  [ -z "$m" ] || [ "$m" = 755 ] || diet_bad="$diet_bad $(basename "$f")($m)"
+done
+[ -z "$diet_bad" ] \
+  && P "chfn, chsh, gpasswd, newgrp and expiry carry no setuid/setgid bit" \
+  || W "setuid/setgid still on:$diet_bad" "run the suid_diet role: dpkg-statoverride --update --add root root 0755 <file>"
+pinned=$(on_node dpkg-statoverride --list 2>/dev/null | grep -cE " 755 /usr/bin/(chfn|chsh|gpasswd|newgrp|expiry)$" || true)
+[ "${pinned:-0}" -ge 5 ] \
+  && P "the five are pinned in dpkg-statoverride (a package upgrade cannot hand the bit back)" \
+  || W "only ${pinned:-0}/5 pinned in dpkg-statoverride - a bare chmod is undone by the next upgrade (measured)" "run the suid_diet role"
+unknown_suid=""
+for f in $(on_node "find / -xdev -type f -perm -4000 -user root 2>/dev/null | sort"); do
+  case " /usr/bin/su /usr/bin/sudo /usr/bin/passwd /usr/bin/mount /usr/bin/umount /usr/lib/openssh/ssh-keysign /usr/sbin/exim4 /usr/lib/dbus-1.0/dbus-daemon-launch-helper " in
+    *" $f "*) ;;
+    *) unknown_suid="$unknown_suid $f";;
+  esac
+done
+[ -z "$unknown_suid" ] \
+  && P "every remaining setuid-root binary is on the known list (su, sudo, passwd, mount, umount, ssh-keysign, exim4, dbus helper)" \
+  || W "setuid-root binaries outside the known list:$unknown_suid" "each is a privilege boundary - confirm it is meant to be here (CIS 6.1.13)"
+
 echo "-- Time synchronization (CIS 2.1) ----------------------------"
 # One clock daemon, configured: certificate windows, Kerberos lifetimes,
 # TOTP and log correlation are all comparisons against the clock.
