@@ -1234,6 +1234,54 @@ done
 expect_ok "nothing listens on mDNS, IPP or the portmapper (5353/631/111)" \
   bash -c "'! ss -lntu | grep -E \":(5353|631|111)[[:space:]]\"'"
 
+echo "== kernel_surface: the interfaces nobody on a server needs =="
+# The CI plants every interface open before the play (io_uring allowed,
+# SysRq at Debian's 438, ldisc autoload on, userns on where the knob
+# exists), so each of these flips red-to-green from real work.
+iou=$(on_node "sudo sysctl -n kernel.io_uring_disabled 2>/dev/null" 2>/dev/null || true)
+if [ -z "$iou" ]; then
+  pass "io_uring_disabled not exposed by this kernel (< 6.6) — pinned in the drop-in regardless"
+else
+  if [ "$iou" = 2 ]; then
+    pass "io_uring is off for everyone, root included (io_uring_disabled = 2)"
+  else
+    fail "io_uring_disabled should be 2, got $iou"
+  fi
+  # Behavioural: io_uring_setup(2) from the admin account must come back
+  # EPERM. perl's syscall() reaches it with no compiler on the node — 425 is
+  # __NR_io_uring_setup on every architecture (the unified table), and a
+  # zeroed 120-byte params struct is a valid request: with the knob at 0 it
+  # hands back a ring fd (measured: fd 3), at 2 it is refused.
+  if on_node "perl -e '\$p = \"\\0\" x 120; \$r = syscall(425, 8, \$p); exit((\$r < 0 && \$!{EPERM}) ? 0 : 1)'" >/dev/null 2>&1; then
+    pass "io_uring_setup(2) is refused with EPERM for the admin account (no ring to aim at)"
+  else
+    fail "io_uring_setup(2) is refused with EPERM for the admin account"
+  fi
+fi
+expect_line "the magic SysRq hotkeys are off (kernel.sysrq = 0)" '^0$' \
+  sudo sysctl -n kernel.sysrq
+expect_line "tty line disciplines no longer autoload on request (dev.tty.ldisc_autoload = 0)" '^0$' \
+  sudo sysctl -n dev.tty.ldisc_autoload
+# Debian/Ubuntu kernels carry the userns knob, upstream builds don't (the
+# WSL lab kernel — measured): where it exists it must be 0 AND an
+# unprivileged account must be refused a user namespace; where it doesn't,
+# the drop-in still carries the pin.
+uns=$(on_node "sudo sysctl -n kernel.unprivileged_userns_clone 2>/dev/null" 2>/dev/null || true)
+if [ -z "$uns" ]; then
+  pass "unprivileged_userns_clone not exposed by this kernel (upstream build) — pinned in the drop-in regardless"
+elif [ "$uns" = 0 ]; then
+  pass "unprivileged user namespaces are off (unprivileged_userns_clone = 0)"
+  if on_node unshare -Ur true >/dev/null 2>&1; then
+    fail "an unprivileged account is refused a user namespace (unshare -Ur)"
+  else
+    pass "an unprivileged account is refused a user namespace (unshare -Ur)"
+  fi
+else
+  fail "unprivileged_userns_clone should be 0, got $uns"
+fi
+expect_line "the kernel-surface drop-in survives reboots" \
+  'kernel\.io_uring_disabled = 2' sudo cat /etc/sysctl.d/99-hardening-kernel-surface.conf
+
 echo "== Fail2Ban really bans =="
 # Attack with a mix of NON-existent usernames (root/admin/oracle/...), the way a
 # real bot does. These log as 'Invalid user' from the sshd-session process on

@@ -1,0 +1,13 @@
+---
+# Kernel attack surface (io_uring, SysRq, tty ldisc autoload, unprivileged
+# userns) — see tasks/main.yml for why each interface goes. Dict order is
+# the drop-in's line order (Python dicts preserve insertion order).
+kernel_surface_values:
+  kernel.io_uring_disabled: "2"
+  kernel.sysrq: "0"
+  dev.tty.ldisc_autoload: "0"
+  kernel.unprivileged_userns_clone: "0"
+
+# Own drop-in, independent of sysctl_hardening / fs_protected /
+# exploit_mitigations — the per-role drop-in precedent.
+kernel_surface_dropin: /etc/sysctl.d/99-hardening-kernel-surface.conf
