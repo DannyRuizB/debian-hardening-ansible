@@ -316,6 +316,19 @@ done
   && P "pam_limits is in the sshd, login, su and sudo stacks (limits apply at every door)" \
   || W "pam_limits missing from PAM stack(s):$missing_pl - limits.d does nothing there" "restore 'session required pam_limits.so' (Debian ships it)"
 
+echo "-- Console reboot surface (Ctrl+Alt+Del) --------------------"
+# A console keystroke that reboots the box with no credential: a local DoS.
+if [ "$(on_node systemctl is-enabled ctrl-alt-del.target 2>/dev/null)" = "masked" ]; then
+  P "ctrl-alt-del.target is masked (a single Ctrl+Alt+Del does nothing)"
+else
+  W "ctrl-alt-del.target is $(on_node systemctl is-enabled ctrl-alt-del.target 2>/dev/null) - a console Ctrl+Alt+Del reboots the box" "run the console_reboot role: systemctl mask ctrl-alt-del.target"
+fi
+if on_node grep -qxF 'CtrlAltDelBurstAction=none' /etc/systemd/system.conf.d/99-hardening-ctrlaltdel.conf 2>/dev/null; then
+  P "the seven-press Ctrl+Alt+Del burst is disabled (CtrlAltDelBurstAction=none)"
+else
+  W "the Ctrl+Alt+Del burst action is at its default (reboot-force) - seven presses in 2 s reboot hard" "run the console_reboot role"
+fi
+
 echo "-- Time synchronization (CIS 2.1) ----------------------------"
 # One clock daemon, configured: certificate windows, Kerberos lifetimes,
 # TOTP and log correlation are all comparisons against the clock.

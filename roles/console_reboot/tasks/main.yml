@@ -1,0 +1,42 @@
+---
+# Console reboot surface — mirrors step 48 of harden.sh in the sibling Bash
+# repo. A Ctrl+Alt+Del at any console (keyboard, serial line, hypervisor
+# "send Ctrl+Alt+Del", BMC) reboots the box with NO credential - a local
+# denial of service on a server nobody sits at. Two doors, both measured on
+# a systemd node:
+#   1. systemd ships ctrl-alt-del.target as an ALIAS of reboot.target
+#      (measured: `systemctl is-enabled` says "alias"). Masking it points the
+#      symlink at /dev/null so a single Ctrl+Alt+Del does nothing.
+#   2. Seven Ctrl+Alt+Dels within 2 s trip a SEPARATE path,
+#      CtrlAltDelBurstAction (default reboot-force), which bypasses the target
+#      and reboots HARD. Masking does not touch it; CtrlAltDelBurstAction=none
+#      in system.conf.d closes it (config-effective: no runtime query).
+# Root still reboots with `systemctl reboot`; this closes the console
+# keystroke, not the administrator's ability.
+
+- name: Mask ctrl-alt-del.target (a single Ctrl+Alt+Del does nothing)
+  ansible.builtin.systemd_service:
+    name: ctrl-alt-del.target
+    masked: true
+
+- name: Ensure the systemd manager drop-in directory exists
+  ansible.builtin.file:
+    path: /etc/systemd/system.conf.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Disable the seven-press Ctrl+Alt+Del burst reboot
+  ansible.builtin.copy:
+    dest: /etc/systemd/system.conf.d/99-hardening-ctrlaltdel.conf
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # Managed by Ansible (console_reboot role). Edit the role, not this file.
+      # Seven Ctrl+Alt+Dels in 2 s force a reboot by a path the masked target
+      # does not cover; none closes it. Root's `systemctl reboot` is unaffected.
+      [Manager]
+      CtrlAltDelBurstAction=none
+  notify: Reload systemd manager configuration
