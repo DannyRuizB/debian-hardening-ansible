@@ -1,0 +1,29 @@
+---
+# Attack-surface services (CIS 2.2) — mirrors step 44 of harden.sh in the
+# sibling Bash repo. The network daemons a server runs because a package
+# pulled them in, not because anyone asked: avahi-daemon (mDNS, announces the
+# box and answers "who is here?" to the whole LAN — the Linux twin of the
+# Windows sibling's LLMNR step), cups (a print server on a box that never
+# prints; the Linux side of PrintNightmare) and rpcbind (the portmapper,
+# NFS/NIS bootstrap, a classic UDP reflector). MEASURED trap on debian:13:
+# purging `cups` alone leaves cups-daemon (the actual cupsd) installed, so
+# the daemon packages are named explicitly. Every other CIS 2.2 server
+# package (samba, nfs, bind, dhcp, ftp, snmp, squid, mail) is a business
+# decision: the audit reports them, this role never removes them.
+service_purge_packages:
+  - avahi-daemon
+  - cups
+  - cups-daemon
+  - cups-browsed
+  - rpcbind
+# Units to stop before the purge (a listener gone before dpkg gets there);
+# a unit that does not exist is not an error.
+service_purge_units:
+  - avahi-daemon.service
+  - avahi-daemon.socket
+  - cups.service
+  - cups.socket
+  - cups.path
+  - cups-browsed.service
+  - rpcbind.service
+  - rpcbind.socket

@@ -222,6 +222,25 @@ else
   done
 fi
 
+echo "-- Attack-surface services (CIS 2.2) --------------------------"
+# Purged by the role: the three daemons a server runs because a package
+# pulled them in. Reported only: the CIS 2.2 server packages that are a
+# business decision - a file server runs samba on purpose.
+for pkg in avahi-daemon cups-daemon rpcbind; do
+  if on_node dpkg -s "$pkg" >/dev/null 2>&1; then
+    F "$pkg is installed (a network listener nobody asked for)" "run the service_purge role or apt-get purge $pkg"
+  else
+    P "$pkg is not installed"
+  fi
+done
+extra_srv=""
+for pkg in samba nfs-kernel-server bind9 isc-dhcp-server kea-dhcp4-server vsftpd proftpd-basic snmpd squid dovecot-core exim4-daemon-light postfix nis; do
+  on_node dpkg -s "$pkg" >/dev/null 2>&1 && extra_srv="$extra_srv $pkg"
+done
+[ -z "$extra_srv" ] \
+  && P "No other CIS 2.2 server package is installed" \
+  || W "CIS 2.2 server packages installed:$extra_srv" "each is a business decision - confirm it is meant to be here, or purge it"
+
 echo "-- Time synchronization (CIS 2.1) ----------------------------"
 # One clock daemon, configured: certificate windows, Kerberos lifetimes,
 # TOTP and log correlation are all comparisons against the clock.
