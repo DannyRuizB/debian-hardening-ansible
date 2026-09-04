@@ -275,6 +275,12 @@ jobs:
             /proc/sys/kernel/unprivileged_userns_clone 2>/dev/null || true
           SH
 
+      # suid_diet has natural offenders: passwd and login ship chfn/chsh/gpasswd/
+      # newgrp setuid root and expiry setgid shadow. Nothing to plant - log the
+      # shipped modes so the flip is visible.
+      - name: Log the shipped setuid/setgid modes suid_diet will strip
+        run: docker exec dh-test-node stat -c "%a %U:%G %n" /usr/bin/chfn /usr/bin/chsh /usr/bin/gpasswd /usr/bin/newgrp /usr/bin/expiry
+
       # apt_trust offender — the broken-mirror workaround that outlives the
       # mirror: both apt trust gates loosened in an apt.conf.d file. Measured
       # on a stock node: with these two lines a repository with no Release

@@ -102,6 +102,9 @@
     # ldisc autoload, unprivileged userns) — no apt, no /var/log, position
     # free. Mirrors step 45 in the Bash twin.
     - kernel_surface
+    # SUID diet: dpkg-statoverride pins, no apt, no /var/log — position free.
+    # Mirrors step 46 in the Bash twin.
+    - suid_diet
     # /tmp confinement: fstab + a mount of its own, touches nothing another
     # role owns (mount_options only handles /dev/shm), position free.
     # Mirrors step 40 in the Bash twin.
