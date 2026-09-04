@@ -59,6 +59,14 @@
     # changed=0 gate caught them; this role learns from their scar).
     # Mirrors step 41 in the Bash twin.
     - time_sync
+    # Attack-surface services: an apt purge — and apt rewrites
+    # /var/log/apt/history.log and eipp.log.xz with loose modes on EVERY
+    # run, whether or not it purged anything. Reproduced on a local node
+    # before the CI gate got a second chance: with this role last, pass 2's
+    # log sweep re-tightened those two files (changed=1). Same rule as
+    # legacy_protocols and time_sync: every role that calls apt goes BEFORE
+    # log_permissions. Mirrors step 44 in the Bash twin.
+    - service_purge
     - log_permissions
     - logrotate_perms
     # Homes touch /home, not /var/log, so running after the log sweep is
@@ -102,8 +110,3 @@
     # touches nothing another role owns (tmp_confinement handles /tmp,
     # mount_options /dev/shm), position free. Mirrors step 43.
     - var_tmp_confinement
-    # Attack-surface services: apt purge of three daemons. Runs apt (which
-    # writes /var/log) — but log_permissions has long finished by here and
-    # sweeps only what exists at ITS run; the purge creates no new log files,
-    # so the position at the end is safe. Mirrors step 44.
-    - service_purge
