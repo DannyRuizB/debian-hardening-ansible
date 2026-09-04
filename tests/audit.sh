@@ -241,6 +241,38 @@ done
   && P "No other CIS 2.2 server package is installed" \
   || W "CIS 2.2 server packages installed:$extra_srv" "each is a business decision - confirm it is meant to be here, or purge it"
 
+echo "-- Kernel attack surface (io_uring, SysRq, ldisc, userns) ----"
+# Whole interfaces closed, not primitives priced: the io_uring ring (the
+# 2020s' most productive kernel bug class), the SysRq hotkeys, tty line
+# discipline autoload and unprivileged user namespaces. Kernels without a
+# knob have nothing to close - the drop-in still carries the pin for the
+# kernels that do, so absence grades as in place.
+iou=$(sctl kernel.io_uring_disabled)
+if [ -z "$iou" ]; then
+  P "kernel.io_uring_disabled not exposed by this kernel (< 6.6; pinned in the drop-in regardless)"
+elif [ "$iou" = 2 ]; then
+  P "kernel.io_uring_disabled = 2 (io_uring_setup refused for everyone)"
+else
+  W "kernel.io_uring_disabled is $iou, not 2" "run the kernel_surface role"
+fi
+for kv in kernel.sysrq:0 dev.tty.ldisc_autoload:0; do
+  key="${kv%:*}"; want="${kv#*:}"
+  got=$(sctl "$key")
+  if [ "$got" = "$want" ]; then
+    P "$key = $got"
+  else
+    W "$key is ${got:-unreadable}, not $want" "run the kernel_surface role"
+  fi
+done
+uns=$(sctl kernel.unprivileged_userns_clone)
+if [ -z "$uns" ]; then
+  P "kernel.unprivileged_userns_clone not exposed by this kernel (upstream build; pinned in the drop-in regardless)"
+elif [ "$uns" = 0 ]; then
+  P "kernel.unprivileged_userns_clone = 0 (no unprivileged user namespaces)"
+else
+  W "kernel.unprivileged_userns_clone is $uns, not 0" "run the kernel_surface role"
+fi
+
 echo "-- Time synchronization (CIS 2.1) ----------------------------"
 # One clock daemon, configured: certificate windows, Kerberos lifetimes,
 # TOTP and log correlation are all comparisons against the clock.

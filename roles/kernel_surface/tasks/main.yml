@@ -1,0 +1,68 @@
+---
+# Kernel attack surface — mirrors step 45 of harden.sh in the sibling Bash
+# repo. exploit_mitigations priced the exploit PRIMITIVES; this role closes
+# whole INTERFACES: kernel code any local process can reach and a headless
+# server never needs. Each one is a bug class with a name:
+#
+#   kernel.io_uring_disabled=2 (kernels >= 6.6): io_uring is a ring shared
+#     with the kernel for async I/O, and the most productive kernel bug
+#     class of the 2020s — Google reported that 60% of the exploits
+#     submitted to its kernel bounty in 2022 targeted it, and switched it
+#     off on production servers, ChromeOS and Android. 2 refuses
+#     io_uring_setup(2) for EVERYONE with EPERM (measured; at 1 root still
+#     gets a ring — a partial pin, not this one).
+#   kernel.sysrq=0: the magic SysRq hotkeys — from a console, a serial line
+#     or a BMC: kill every process, reboot without sync, dump memory to the
+#     log. Debian ships 438. 0 closes the KEYBOARD path; root's
+#     /proc/sysrq-trigger bypasses the mask by design and stays.
+#   dev.tty.ldisc_autoload=0: any tty owner can request a line discipline
+#     and the kernel autoloads its module — n_hdlc, slip, ppp_async... a
+#     string of unprivileged LPEs came from exactly that path.
+#   kernel.unprivileged_userns_clone=0 (Debian/Ubuntu kernels): an
+#     unprivileged user namespace hands any local account a fake
+#     CAP_SYS_ADMIN — the amplifier under most modern LPEs. Upstream
+#     kernels don't carry the knob (the WSL lab kernel, measured): the
+#     drop-in pins it for the kernels that do, the live write notes — which
+#     is WHY this role, like exploit_mitigations, does not use
+#     ansible.posix.sysctl (the module fails on a missing key).
+#     user.max_user_namespaces=0 is NOT the substitute: it forbids root too
+#     (containers, systemd PrivateUsers=).
+
+- name: Pin the kernel attack-surface sysctls in their own drop-in
+  ansible.builtin.copy:
+    dest: "{{ kernel_surface_dropin }}"
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # Managed by Ansible (kernel_surface role). Edit the role, not this file.
+      # Close the kernel interfaces a headless server never needs: no io_uring
+      # rings, no magic SysRq hotkeys, no tty line-discipline autoload, no
+      # unprivileged user namespaces (where the kernel carries the knob).
+      {% for k, v in kernel_surface_values.items() %}
+      {{ k }} = {{ v }}
+      {% endfor %}
+
+# Live, with the warn-never-fail shape of the Bash twin: a key the kernel
+# does not expose (io_uring on < 6.6, userns_clone on upstream builds) gets
+# a MISSING note; one already at target reports OK; only a real write flips
+# changed. Plain shell (skipped under --check like any command).
+- name: Close the kernel interfaces live (a missing key notes, never fails)
+  ansible.builtin.shell:
+    executable: /bin/bash
+    cmd: |
+      set -u
+      {% for k, v in kernel_surface_values.items() %}
+      p="/proc/sys/{{ k | replace('.', '/') }}"
+      if [ ! -e "$p" ]; then
+        echo "MISSING {{ k }} (pinned in the drop-in for kernels that have it)"
+      elif [ "$(cat "$p")" = "{{ v }}" ]; then
+        echo "OK {{ k }}"
+      elif sysctl -q -w "{{ k }}={{ v }}" 2>/dev/null; then
+        echo "APPLIED {{ k }}"
+      else
+        echo "UNSETTABLE {{ k }} (the drop-in applies where it can)"
+      fi
+      {% endfor %}
+  register: kernel_surface_apply
+  changed_when: "'APPLIED' in kernel_surface_apply.stdout"

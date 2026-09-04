@@ -249,6 +249,32 @@ jobs:
           ss -lntu | grep -E ':(5353|631|111)[[:space:]]' || echo "(no listener yet - units may need a moment)"
           SH
 
+      # kernel_surface offenders: a stock kernel ships every one of these
+      # interfaces open - plant the open values via /proc (io_uring allowed,
+      # SysRq at Debian's 438, tty line disciplines autoloading, unprivileged
+      # user namespaces on where the kernel carries the knob). The perl line
+      # logs the smoking gun: io_uring_setup(2) hands anyone a ring fd.
+      - name: Plant open kernel interfaces for kernel_surface to close
+        run: |
+          docker exec -i dh-test-node bash -s <<'SH'
+          if [ -e /proc/sys/kernel/io_uring_disabled ]; then
+            echo 0 > /proc/sys/kernel/io_uring_disabled
+          else
+            echo "no io_uring_disabled knob on this kernel (< 6.6)"
+          fi
+          echo 438 > /proc/sys/kernel/sysrq
+          echo 1 > /proc/sys/dev/tty/ldisc_autoload
+          if [ -e /proc/sys/kernel/unprivileged_userns_clone ]; then
+            echo 1 > /proc/sys/kernel/unprivileged_userns_clone
+          else
+            echo "no unprivileged_userns_clone knob on this kernel (upstream build)"
+          fi
+          echo "io_uring open - io_uring_setup(2) hands anyone a ring:"
+          perl -e '$p = "\0" x 120; $r = syscall(425, 8, $p); print "io_uring_setup -> $r", ($r < 0 ? " ($!)" : " (a ring fd)"), "\n"'
+          grep -H . /proc/sys/kernel/io_uring_disabled /proc/sys/kernel/sysrq /proc/sys/dev/tty/ldisc_autoload \
+            /proc/sys/kernel/unprivileged_userns_clone 2>/dev/null || true
+          SH
+
       # apt_trust offender — the broken-mirror workaround that outlives the
       # mirror: both apt trust gates loosened in an apt.conf.d file. Measured
       # on a stock node: with these two lines a repository with no Release

@@ -98,6 +98,10 @@
     # Exploit mitigations: its own sysctl drop-in (ASLR, kexec, unprivileged
     # BPF, JIT hardening, perf) — position free. Mirrors step 39.
     - exploit_mitigations
+    # Kernel attack surface: its own sysctl drop-in (io_uring, SysRq, tty
+    # ldisc autoload, unprivileged userns) — no apt, no /var/log, position
+    # free. Mirrors step 45 in the Bash twin.
+    - kernel_surface
     # /tmp confinement: fstab + a mount of its own, touches nothing another
     # role owns (mount_options only handles /dev/shm), position free.
     # Mirrors step 40 in the Bash twin.
