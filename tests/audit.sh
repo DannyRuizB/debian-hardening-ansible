@@ -299,6 +299,23 @@ done
   && P "every remaining setuid-root binary is on the known list (su, sudo, passwd, mount, umount, ssh-keysign, exim4, dbus helper)" \
   || W "setuid-root binaries outside the known list:$unknown_suid" "each is a privilege boundary - confirm it is meant to be here (CIS 6.1.13)"
 
+echo "-- Per-session process limits (fork bombs) -------------------"
+# Every PAM session capped in processes; root untouched by design ('*' never
+# matches root). The drop-in only bites where pam_limits is in the stack.
+if on_node grep -qE '^\*\s+hard\s+nproc\s+[0-9]+' /etc/security/limits.d/99-hardening-nproc.conf 2>/dev/null; then
+  P "login sessions carry a hard nproc cap ($(on_node grep -E '^\*\s+hard\s+nproc' /etc/security/limits.d/99-hardening-nproc.conf | awk '{print $4}'))"
+else
+  W "login sessions have no process cap - a fork bomb from any account takes the box down" "run the process_limits role: '* hard nproc 4096' in limits.d"
+fi
+missing_pl=""
+for stack in sshd login su sudo; do
+  on_node test -f "/etc/pam.d/$stack" 2>/dev/null || continue
+  on_node grep -qE '^\s*session\s+required\s+pam_limits\.so' "/etc/pam.d/$stack" 2>/dev/null || missing_pl="$missing_pl $stack"
+done
+[ -z "$missing_pl" ] \
+  && P "pam_limits is in the sshd, login, su and sudo stacks (limits apply at every door)" \
+  || W "pam_limits missing from PAM stack(s):$missing_pl - limits.d does nothing there" "restore 'session required pam_limits.so' (Debian ships it)"
+
 echo "-- Time synchronization (CIS 2.1) ----------------------------"
 # One clock daemon, configured: certificate windows, Kerberos lifetimes,
 # TOTP and log correlation are all comparisons against the clock.
