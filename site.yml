@@ -108,6 +108,9 @@
     # Per-session process limits: one limits.d drop-in, no apt, no /var/log —
     # position free. Mirrors step 47 in the Bash twin.
     - process_limits
+    # Console reboot surface: mask ctrl-alt-del.target + CtrlAltDelBurstAction
+    # drop-in. No apt, no /var/log — position free. Mirrors step 48.
+    - console_reboot
     # /tmp confinement: fstab + a mount of its own, touches nothing another
     # role owns (mount_options only handles /dev/shm), position free.
     # Mirrors step 40 in the Bash twin.

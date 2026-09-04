@@ -290,6 +290,14 @@ jobs:
           echo "pam_limits in the sshd stack: $(grep -cE '^session\s+required\s+pam_limits' /etc/pam.d/sshd)"
           SH
 
+      # console_reboot has a natural offender: systemd ships ctrl-alt-del.target
+      # as an alias of reboot.target. Nothing to plant - log the shipped state.
+      - name: Log the shipped Ctrl+Alt+Del state console_reboot will close
+        run: |
+          docker exec -i dh-test-node bash -s <<'SH'
+          echo "ctrl-alt-del.target as shipped: $(systemctl is-enabled ctrl-alt-del.target 2>&1)"
+          SH
+
       # apt_trust offender — the broken-mirror workaround that outlives the
       # mirror: both apt trust gates loosened in an apt.conf.d file. Measured
       # on a stock node: with these two lines a repository with no Release

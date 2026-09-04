@@ -93,7 +93,7 @@ what the play actually promises — whatever the most recent role happens to
 be. Current score on a freshly hardened node:
 
 ```
- Score: 156 PASS, 0 WARN, 0 FAIL  ->  100% compliant
+ Score: 158 PASS, 0 WARN, 0 FAIL  ->  100% compliant
 ```
 
 ## Honesty

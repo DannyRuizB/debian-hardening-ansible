@@ -1321,6 +1321,20 @@ expect_line "sudo from the capped session inherits the cap (ulimit -Hu = 4096, n
 expect_ok "pam_limits sits in the sshd PAM stack (the cap actually applies at the door)" \
   grep -qE "'^\s*session\s+required\s+pam_limits\.so'" /etc/pam.d/sshd
 
+echo "== console_reboot: the Ctrl+Alt+Del keystroke is dead =="
+# systemd ships ctrl-alt-del.target as an alias of reboot.target (measured);
+# masking flips it to "masked" and points the symlink at /dev/null. is-enabled
+# exits non-zero for a masked unit, so read its word through grep, not its exit.
+# is-enabled exits non-zero for a masked unit, and verify runs under
+# `set -o pipefail`, so read the word through a shell that swallows the exit
+# code (grep still sees "masked"); the exit is not the signal here.
+expect_line "a single Ctrl+Alt+Del is dead (ctrl-alt-del.target masked)" '^masked$' \
+  sudo bash -c "'systemctl is-enabled ctrl-alt-del.target 2>&1 || true'"
+expect_line "the masked target points at /dev/null" '^/dev/null$' \
+  readlink /etc/systemd/system/ctrl-alt-del.target
+expect_line "the seven-press burst reboot is disabled (CtrlAltDelBurstAction=none)" \
+  '^CtrlAltDelBurstAction=none$' sudo cat /etc/systemd/system.conf.d/99-hardening-ctrlaltdel.conf
+
 echo "== Fail2Ban really bans =="
 # Attack with a mix of NON-existent usernames (root/admin/oracle/...), the way a
 # real bot does. These log as 'Invalid user' from the sshd-session process on
