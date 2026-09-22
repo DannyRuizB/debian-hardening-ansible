@@ -329,6 +329,27 @@ else
   W "the Ctrl+Alt+Del burst action is at its default (reboot-force) - seven presses in 2 s reboot hard" "run the console_reboot role"
 fi
 
+echo "-- Egress filtering (what the box may start) -----------------"
+# Every check above asks who may reach the box. This one asks what the box may
+# reach: the outbound door that only matters once someone is already inside.
+if on_node ufw status verbose | grep -qE '(reject|deny) \(outgoing\)'; then
+  P "the outbound default is closed (egress is allowlist-only)"
+else
+  W "outbound traffic is unrestricted - a reverse shell, a dropper or an exfil leaves on any port" "run the egress role, or: ufw default reject outgoing"
+fi
+# A closed outbound door that also closes DNS, NTP or apt is not hardening, it
+# is an outage waiting for the next reboot - and the DHCP lease renewal is the
+# one that takes the box's own address away.
+missing_out=""
+for r in 53/udp 123/udp 80/tcp 443/tcp 67:68/udp; do
+  on_node ufw status | grep -qE "^$r +ALLOW OUT" || missing_out="$missing_out $r"
+done
+if [ -z "$missing_out" ] || on_node ufw status verbose | grep -q 'allow (outgoing)'; then
+  P "DNS, NTP, apt and the DHCP lease survive the outbound policy"
+else
+  W "the outbound policy allows no:$missing_out - resolution, the clock, updates or the DHCP lease will fail" "add them to egress_allowed_ports / egress_extra_ports"
+fi
+
 echo "-- Time synchronization (CIS 2.1) ----------------------------"
 # One clock daemon, configured: certificate windows, Kerberos lifetimes,
 # TOTP and log correlation are all comparisons against the clock.

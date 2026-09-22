@@ -298,6 +298,14 @@ jobs:
           echo "ctrl-alt-del.target as shipped: $(systemctl is-enabled ctrl-alt-del.target 2>&1)"
           SH
 
+      # egress has a natural offender too: ufw is not even installed yet, so
+      # nothing filters outbound at all. Log what the box ships with.
+      - name: Log the shipped outbound policy the egress role will close
+        run: |
+          docker exec -i dh-test-node bash -s <<'SH'
+          echo "outbound policy as shipped: $(grep -h DEFAULT_OUTPUT_POLICY /etc/default/ufw 2>/dev/null || echo 'ufw not installed - nothing filters outbound')"
+          SH
+
       # apt_trust offender — the broken-mirror workaround that outlives the
       # mirror: both apt trust gates loosened in an apt.conf.d file. Measured
       # on a stock node: with these two lines a repository with no Release

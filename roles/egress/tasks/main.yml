@@ -1,0 +1,42 @@
+---
+# Egress filtering — mirrors step 49 of harden.sh in the sibling Bash repo.
+# The ufw role decided who may reach the box; this one decides what the box
+# may reach. Debian ships `default allow outgoing`, and that open door is the
+# one every post-exploitation move uses: the reverse shell dialling home on
+# 4444, the dropper curling stage two, the exfil pushing a tarball out, the
+# worm spraying port 22 across the subnet. None of them needs an inbound hole.
+#
+# REJECT, not DROP, on purpose (both measured on the node): a rejected
+# connection answers ECONNREFUSED in about a second, a dropped one hangs for
+# the full TCP timeout. Stealth buys nothing against an attacker who is
+# already on the box, and the hang costs the administrator every debugging
+# session afterwards.
+#
+# Two omissions are the point rather than oversights: outbound 22 (the box can
+# no longer ssh, scp or git-clone out - that is the lateral movement this role
+# exists to stop) and outbound 25/587 (a relay to a real MTA; local delivery
+# is loopback and untouched). Both come back with egress_extra_ports.
+
+- name: Filter outbound traffic
+  when:
+    - egress_enabled | bool
+    # In check mode on a node without ufw the package is not really installed
+    # by the ufw role, so its binary does not exist and every ufw task would
+    # error out - the same guard the ufw role uses on itself.
+    - not (ansible_check_mode and ufw_pkg.changed | default(false))
+  block:
+    # The allowlist goes in BEFORE the policy flips, so there is never a
+    # moment where the box is closed and apt, DNS or the DHCP lease are not
+    # allowed through yet.
+    - name: Allow the outbound ports a server needs to stay a server
+      community.general.ufw:
+        rule: allow
+        direction: out
+        port: "{{ item.split('/')[0] }}"
+        proto: "{{ item.split('/')[1] if '/' in item else 'tcp' }}"
+      loop: "{{ egress_allowed_ports + egress_extra_ports }}"
+
+    - name: Default reject outgoing (everything not allowlisted above)
+      community.general.ufw:
+        direction: outgoing
+        policy: reject
