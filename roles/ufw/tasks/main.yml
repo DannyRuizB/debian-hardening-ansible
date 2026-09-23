@@ -19,10 +19,17 @@
         direction: incoming
         policy: deny
 
-    - name: Default allow outgoing
+    # What may go OUT is the egress role's call (it mirrors step 49 of the
+    # Bash twin and runs last). When it is going to close the outbound
+    # default, don't open it here just to have it closed again later in the
+    # same play: both tasks would report "changed" on every single run and
+    # the idempotence gate would never go green. With egress_enabled false
+    # this role keeps its old promise and opens it explicitly.
+    - name: Default allow outgoing (unless the egress role closes it)
       community.general.ufw:
         direction: outgoing
         policy: allow
+      when: not (egress_enabled | default(true) | bool)
 
     # Allow SSH BEFORE enabling the firewall, so enabling can never lock us out.
     - name: Allow SSH

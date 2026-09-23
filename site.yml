@@ -123,3 +123,8 @@
     # touches nothing another role owns (tmp_confinement handles /tmp,
     # mount_options /dev/shm), position free. Mirrors step 43.
     - var_tmp_confinement
+    # Egress filtering: owns the ufw OUTBOUND policy (the ufw role stands
+    # down on it). LAST on purpose - every role that installs a package
+    # reaches its mirror before the outbound door narrows to the allowlist,
+    # exactly as step 49 runs last in the Bash twin.
+    - egress

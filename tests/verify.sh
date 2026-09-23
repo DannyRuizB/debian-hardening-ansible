@@ -1335,6 +1335,28 @@ expect_line "the masked target points at /dev/null" '^/dev/null$' \
 expect_line "the seven-press burst reboot is disabled (CtrlAltDelBurstAction=none)" \
   '^CtrlAltDelBurstAction=none$' sudo cat /etc/systemd/system.conf.d/99-hardening-ctrlaltdel.conf
 
+echo "== egress: the box may only start what it needs =="
+# The ufw role proved who may reach the box. This proves what the box may
+# reach - the door a reverse shell, a dropper or an exfil walks out of. The
+# policy is read from ufw itself, then the behaviour is measured on the node.
+expect_line "the outbound default is reject (egress is allowlist-only)" 'reject \(outgoing\)' \
+  sudo ufw status verbose
+expect_line "the DHCP client keeps its lease (67:68/udp allowed out)" '67:68/udp +ALLOW OUT' \
+  sudo ufw status
+# A port nobody allowlisted. "open" would mean there is no egress filtering at
+# all, "dropped" that the policy is deny and every mistyped host now hangs for
+# the full TCP timeout; reject is the one that answers in about a second.
+expect_line "a reverse shell to 1.1.1.1:4444 is refused, not left hanging" '^refused$' \
+  bash -c "'timeout 20 bash -c \"exec 3<>/dev/tcp/1.1.1.1/4444\" 2>/dev/null; rc=\$?; case \$rc in 0) echo open;; 124) echo dropped;; *) echo refused;; esac'"
+# ...and the firewall's own books say it was the reject rule that did it, not
+# a coincidence out on the internet.
+expect_line "the outbound reject rule counted those packets" '^ *[1-9][0-9]* +[0-9]+ +REJECT' \
+  sudo iptables -nvL ufw-reject-output
+# The other half of the promise: filtered, not cut off.
+expect_ok "an allowlisted port still leaves the box (443/tcp out)" \
+  bash -c "'timeout 20 bash -c \"exec 3<>/dev/tcp/1.1.1.1/443\"'"
+expect_ok "name resolution still works (53 allowed out)" getent hosts deb.debian.org
+
 echo "== Fail2Ban really bans =="
 # Attack with a mix of NON-existent usernames (root/admin/oracle/...), the way a
 # real bot does. These log as 'Invalid user' from the sshd-session process on

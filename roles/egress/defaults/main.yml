@@ -1,0 +1,26 @@
+---
+# Egress filtering is on by default, like every other role here. Set it to
+# false to keep the old behaviour (the ufw role then opens the outbound
+# default explicitly, exactly as it used to).
+egress_enabled: true
+
+# What the box may START a connection on. This is the whole list: everything
+# else is rejected.
+#   53/udp+tcp   DNS  - nothing resolves without it
+#   123/udp      NTP  - the time_sync role's clock, itself a control
+#   80,443/tcp   HTTP(S) - apt, unattended-upgrades, the aide/rkhunter mirrors
+#   67:68/udp    DHCP - the trap: on a DHCP-addressed VPS a blocked lease
+#                RENEWAL takes the box's own IP away hours later, and the SSH
+#                session with it
+egress_allowed_ports:
+  - 53/udp
+  - 53/tcp
+  - 123/udp
+  - 80/tcp
+  - 443/tcp
+  - 67:68/udp
+
+# Extra outbound ports for what a site actually needs, e.g. ["22/tcp"] for
+# git-over-SSH or ["587/tcp"] for a mail relay. The outbound twin of
+# ufw_extra_ports.
+egress_extra_ports: []
