@@ -7,9 +7,10 @@
 # INTEGRITY (its world-writable sweep is filesystem-wide); this one adds
 # CONFIDENTIALITY: nothing under /var/log stays readable to everyone.
 #
-# Two halves on purpose: fix the files that exist today, then teach rsyslog
-# to create tomorrow's files restricted too — a sweep without the second
-# half rots on the next logrotate cycle.
+# Three parts on purpose: fix the files that exist today, then teach the
+# two writers that recreate them to keep them restricted — rsyslog (a sweep
+# without it rots on the next logrotate cycle) and apt, which resets its
+# own logs to 644 on every run (measured, see the last task).
 
 - name: Check which utmp-family files exist
   ansible.builtin.stat:
@@ -110,3 +111,26 @@
   when: log_permissions_rsyslogd.stat.exists
   changed_when: false
   check_mode: false
+
+# apt is the other writer, and it does not respect the sweep: MEASURED on
+# the node, history.log and eipp.log.xz go back to 644 on every run that
+# reaches dpkg — apt-get and python-apt alike, so unattended-upgrades (and
+# every later role's apt task) undoes the sweep. The idempotency pass hid
+# it: nothing reaches dpkg after the second sweep. apt has no knob for the
+# mode, so a DPkg::Post-Invoke hook re-tightens the two files once dpkg is
+# done; apt does not touch the mode again when it writes End-Date
+# (measured). The hook always returns 0, so it can never fail an upgrade.
+# validate parses the fragment with apt's own parser before it lands — the
+# Bash twin's revert-if-rejected, done up front.
+- name: Re-tighten apt's own logs after every dpkg run (apt.conf.d hook)
+  ansible.builtin.copy:
+    dest: "{{ log_permissions_apt_dropin }}"
+    owner: root
+    group: root
+    mode: "0644"
+    validate: apt-config -c %s dump
+    content: |
+      // Managed by Ansible (log_permissions role, CIS 4.2.3). Edit the role,
+      // not this file. apt resets history.log and eipp.log.xz to 644 on every
+      // run; this puts them back to owner+group only once dpkg is done.
+      DPkg::Post-Invoke { "chmod g-wx,o-rwx /var/log/apt/history.log /var/log/apt/eipp.log.xz 2>/dev/null || true"; };

@@ -625,6 +625,20 @@ else
   fail "a log file rsyslog creates from scratch is born 0640 (got: ${newmode:-missing})"
 fi
 
+# apt is the other writer: it resets history.log and eipp.log.xz to 644 on
+# every run that reaches dpkg (measured) — the CI's second, idempotency pass
+# hides it (nothing reaches dpkg after the sweep), a real server's first
+# nightly unattended-upgrade would not. So run apt for real, then look.
+expect_line "apt log-permissions hook is in place" 'chmod g-wx,o-rwx /var/log/apt/history.log' \
+  "sudo apt-config dump"
+on_node "sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -q --reinstall hostname" >/dev/null 2>&1 || true
+aptmodes=$(on_node "sudo stat -c '%a %n' /var/log/apt/history.log /var/log/apt/eipp.log.xz" 2>/dev/null | tr '\n' ' ' || true)
+if [ "$aptmodes" = "640 /var/log/apt/history.log 640 /var/log/apt/eipp.log.xz " ]; then
+  pass "apt's own logs stay 0640 after a real apt run (hook beats apt's reset to 644)"
+else
+  fail "apt's own logs stay 0640 after a real apt run (got: ${aptmodes:-missing})"
+fi
+
 echo "== Logrotate permissions (CIS 4.4) =="
 # Rotation is the THIRD way a log is born: logrotate's create directive
 # decides the mode of every file it re-creates, and stock Debian's global
