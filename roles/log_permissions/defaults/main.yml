@@ -2,6 +2,9 @@
 # Path of the rsyslog drop-in that pins the creation mode of future logs.
 log_permissions_rsyslog_dropin: /etc/rsyslog.d/99-hardening.conf
 
+# apt.conf.d hook that re-tightens apt's own logs after every dpkg run.
+log_permissions_apt_dropin: /etc/apt/apt.conf.d/99-hardening-logperms
+
 # The utmp family is world-readable BY DESIGN — `who` and `last` must work
 # for non-root users. wtmp and lastlog keep 664; btmp is tighter because
 # failed logins record usernames typed into the password prompt, which are

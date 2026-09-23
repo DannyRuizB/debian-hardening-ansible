@@ -234,12 +234,27 @@ for pkg in avahi-daemon cups-daemon rpcbind; do
   fi
 done
 extra_srv=""
-for pkg in samba nfs-kernel-server bind9 isc-dhcp-server kea-dhcp4-server vsftpd proftpd-basic snmpd squid dovecot-core exim4-daemon-light postfix nis; do
+for pkg in samba nfs-kernel-server bind9 isc-dhcp-server kea-dhcp4-server vsftpd proftpd-basic snmpd squid dovecot-core nis; do
   on_node dpkg -s "$pkg" >/dev/null 2>&1 && extra_srv="$extra_srv $pkg"
 done
 [ -z "$extra_srv" ] \
   && P "No other CIS 2.2 server package is installed" \
   || W "CIS 2.2 server packages installed:$extra_srv" "each is a business decision - confirm it is meant to be here, or purge it"
+# An MTA is graded by where it listens, not by being installed (CIS 2.2.15,
+# local-only mode): aide and rkhunter pull exim4 in for their mail reports,
+# and Debian's stock exim4/postfix bind loopback only.
+mta=""
+for pkg in exim4-daemon-light exim4-daemon-heavy postfix; do
+  on_node dpkg -s "$pkg" >/dev/null 2>&1 && mta="$mta $pkg"
+done
+if [ -z "$mta" ]; then
+  P "No MTA installed"
+else
+  mta_open=$(on_node ss -ltnH | awk '$4 ~ /:(25|465|587)$/ && $4 !~ /^(127\.|\[::1\]|::1)/ {print $4}' | tr '\n' ' ')
+  [ -z "$(printf '%s' "$mta_open" | tr -d ' ')" ] \
+    && P "MTA (${mta# }) is local-only: nothing listens on 25/465/587 beyond loopback" \
+    || W "MTA listens beyond loopback ($mta_open)" "set local-only mode (exim4: dc_local_interfaces='127.0.0.1 ; ::1'; postfix: inet_interfaces = loopback-only) unless this box relays mail on purpose"
+fi
 
 echo "-- Kernel attack surface (io_uring, SysRq, ldisc, userns) ----"
 # Whole interfaces closed, not primitives priced: the io_uring ring (the
@@ -289,7 +304,9 @@ pinned=$(on_node dpkg-statoverride --list 2>/dev/null | grep -cE " 755 /usr/bin/
   && P "the five are pinned in dpkg-statoverride (a package upgrade cannot hand the bit back)" \
   || W "only ${pinned:-0}/5 pinned in dpkg-statoverride - a bare chmod is undone by the next upgrade (measured)" "run the suid_diet role"
 unknown_suid=""
-for f in $(on_node "find / -xdev -type f -perm -4000 -user root 2>/dev/null | sort"); do
+# (bash -c: docker exec takes argv, not a command line — passed as one
+# string, the whole pipeline is looked up as a binary name and fails)
+for f in $(on_node bash -c 'find / -xdev -type f -perm -4000 -user root 2>/dev/null | sort'); do
   case " /usr/bin/su /usr/bin/sudo /usr/bin/passwd /usr/bin/mount /usr/bin/umount /usr/lib/openssh/ssh-keysign /usr/sbin/exim4 /usr/lib/dbus-1.0/dbus-daemon-launch-helper " in
     *" $f "*) ;;
     *) unknown_suid="$unknown_suid $f";;
@@ -640,6 +657,11 @@ leakylogs=$(on_node find /var/log -xdev -type f ! -name 'wtmp*' ! -name 'btmp*' 
 [ -z "$(printf '%s' "$leakylogs" | tr -d ' ')" ] \
   && P "no log file is group-writable or world-accessible (utmp family aside)" \
   || W "log files readable/writable beyond owner+group ($leakylogs)" "chmod g-wx,o-rwx (log_permissions role)"
+# apt resets history.log and eipp.log.xz to 644 on every dpkg run — the
+# sweep only holds if the hook re-tightens them after each one.
+on_node apt-config dump | grep -qF 'chmod g-wx,o-rwx /var/log/apt/history.log' \
+  && P "apt re-tightens its own logs after every dpkg run (DPkg::Post-Invoke hook)" \
+  || W "apt resets history.log/eipp.log.xz to 644 on its next run - nothing re-tightens them" "write the apt hook (log_permissions role)"
 # Tomorrow's logs matter as much as today's: rsyslog must keep creating
 # files 0640 (a drifted FileCreateMode rots the sweep on the next rotation).
 # (bash -c: `command` is a shell builtin, docker exec can't run it bare)
