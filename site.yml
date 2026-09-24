@@ -123,6 +123,11 @@
     # touches nothing another role owns (tmp_confinement handles /tmp,
     # mount_options /dev/shm), position free. Mirrors step 43.
     - var_tmp_confinement
+    # PAM nullok: one replace in common-auth. After every role that wires a
+    # pam-auth-update profile (faillock, guess_cost, pw_history) - their
+    # regenerations were measured to keep the removal anyway. No apt, no
+    # /var/log. Mirrors step 50 in the Bash twin.
+    - pam_nullok
     # Egress filtering: owns the ufw OUTBOUND policy (the ufw role stands
     # down on it). LAST on purpose - every role that installs a package
     # reaches its mirror before the outbound door narrows to the allowlist,

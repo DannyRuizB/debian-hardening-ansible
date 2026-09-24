@@ -1,0 +1,24 @@
+---
+# PAM nullok — mirrors step 50 of harden.sh in the sibling Bash repo
+# (CIS 5.3.3.4.1). Debian ships pam_unix in common-auth with `nullok`: an
+# account whose shadow field is EMPTY authenticates with no password at all
+# (measured on debian:13: an unprivileged `su emptyacct -c id` gets the shell
+# without typing anything; pamtester authenticates it without prompting). The
+# account_hygiene role locks the empty accounts it finds today; this removes
+# the RULE, so tomorrow's (a `passwd -d`, a package's useradd) is not a free
+# login either.
+#
+# Where to cut, measured: editing /usr/share/pam-configs/unix is undone by a
+# libpam-runtime reinstall/upgrade (not a conffile; the postinst regenerates
+# common-auth with nullok back). Editing common-auth itself survives a new PAM
+# profile, `pam-auth-update --force` and a libpam-runtime reinstall, because
+# pam-auth-update records per-module option removals as local modifications
+# and re-applies them. So the cut goes in common-auth, and the handler lets
+# pam-auth-update absorb it.
+
+- name: Remove nullok from pam_unix in common-auth (an empty password is not a credential)
+  ansible.builtin.replace:
+    path: /etc/pam.d/common-auth
+    regexp: '^([^#\n]*pam_unix\.so[^\n]*?)[ \t]+nullok(?=[ \t]|$)'
+    replace: '\1'
+  notify: Absorb the nullok removal into pam-auth-update
