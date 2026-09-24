@@ -346,6 +346,14 @@ else
   W "the Ctrl+Alt+Del burst action is at its default (reboot-force) - seven presses in 2 s reboot hard" "run the console_reboot role"
 fi
 
+echo "-- PAM nullok (CIS 5.3.3.4.1) --------------------------------"
+# nullok on pam_unix makes an EMPTY password a valid credential.
+if on_node grep -Eq '^[^#]*pam_unix\.so.*[[:space:]]nullok([[:space:]]|$)' /etc/pam.d/common-auth 2>/dev/null; then
+  F "pam_unix in common-auth has nullok - an account with an empty password logs in with no password" "apply the pam_nullok role"
+else
+  P "pam_unix refuses empty passwords (no nullok in common-auth)"
+fi
+
 echo "-- Egress filtering (what the box may start) -----------------"
 # Every check above asks who may reach the box. This one asks what the box may
 # reach: the outbound door that only matters once someone is already inside.

@@ -308,6 +308,14 @@ jobs:
           echo "outbound policy as shipped: $policy"
           SH
 
+      # pam_nullok has a natural offender: Debian ships pam_unix with nullok
+      # in common-auth. Nothing to plant - log the shipped line.
+      - name: Log the shipped pam_unix line pam_nullok will strip
+        run: |
+          docker exec -i dh-test-node bash -s <<'SH'
+          echo "pam_unix as shipped: $(grep pam_unix /etc/pam.d/common-auth)"
+          SH
+
       # apt_trust offender — the broken-mirror workaround that outlives the
       # mirror: both apt trust gates loosened in an apt.conf.d file. Measured
       # on a stock node: with these two lines a repository with no Release
