@@ -1063,11 +1063,14 @@ expect_ok "the migrated password still authenticates (moved, not broken)" \
 expect_line "the empty-password account is locked ('!') in /etc/shadow" '^!' \
   "sudo awk -F: '\$1 == \"dhnopw\" {print \$2}' /etc/shadow"
 # Behavioral crown: before hardening, pressing Enter WAS dhnopw's password
-# (measured); the lock must have closed that door.
+# (measured). Since step/role 50 two layers close that door - this lock AND
+# the removal of nullok - so the refusal below no longer tells them apart;
+# the '!' check right above is what proves THIS role, and the Bash twin's --no-account-
+# hygiene scenario proves the nullok layer holds on its own.
 if on_node "printf '\n' | sudo pamtester login dhnopw authenticate" >/dev/null 2>&1; then
-  fail "pressing Enter is no longer a password (empty-password account locked)"
+  fail "pressing Enter is no longer a password (account locked, and no nullok)"
 else
-  pass "pressing Enter is no longer a password (empty-password account locked)"
+  pass "pressing Enter is no longer a password (account locked, and no nullok)"
 fi
 
 echo "== Exploit mitigations =="
