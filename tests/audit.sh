@@ -354,6 +354,19 @@ else
   P "pam_unix refuses empty passwords (no nullok in common-auth)"
 fi
 
+echo "-- SSH host keys (ssh-audit / CIS 5.1) ------------------------"
+# The box proves its identity with what HostKeyAlgorithms allows; an ECDSA
+# nistp256 host key served next to the curve25519-only kex of step 35 is the
+# NIST curve coming back through the identity side.
+hka=$(on_node sudo sshd -T 2>/dev/null | awk '$1=="hostkeyalgorithms"{print $2}')
+if [ -z "$hka" ]; then
+  W "could not read hostkeyalgorithms from sshd -T" "check sshd is installed and the config parses"
+elif [[ "$hka" == *ecdsa* ]]; then
+  F "sshd still serves ECDSA host keys (hostkeyalgorithms: ${hka%%,*},...)" "run the playbook (ssh_hostkeys role)"
+else
+  P "sshd serves ed25519/rsa-sha2 host keys only (no ECDSA)"
+fi
+
 echo "-- Egress filtering (what the box may start) -----------------"
 # Every check above asks who may reach the box. This one asks what the box may
 # reach: the outbound door that only matters once someone is already inside.
