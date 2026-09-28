@@ -310,6 +310,16 @@ jobs:
 
       # pam_nullok has a natural offender: Debian ships pam_unix with nullok
       # in common-auth. Nothing to plant - log the shipped line.
+      # ssh_hostkeys: the natural offender is the ECDSA nistp256 host key
+      # Debian serves. Plant a stray HostKey line for it in the MAIN config:
+      # HostKey lines accumulate, so only the HostKeyAlgorithms pin stops it
+      # (measured). Record fingerprints so verify proves nothing regenerated.
+      - name: Plant a stray ECDSA HostKey line and record the host keys for ssh_hostkeys
+        run: |
+          docker exec dh-test-node bash -c '
+            echo "HostKey /etc/ssh/ssh_host_ecdsa_key" >> /etc/ssh/sshd_config &&
+            for f in /etc/ssh/ssh_host_*_key.pub; do ssh-keygen -lf "$f"; done' | tee tests/.ssh_ci/hostkeys-before.txt
+
       - name: Log the shipped pam_unix line pam_nullok will strip
         run: |
           docker exec -i dh-test-node bash -s <<'SH'

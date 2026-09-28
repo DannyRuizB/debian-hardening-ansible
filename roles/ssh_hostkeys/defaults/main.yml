@@ -1,0 +1,15 @@
+---
+# SSH host keys — mirrors step 51 of harden.sh in the sibling Bash repo.
+# RSA is served only at this size or more. Measured: Debian 13 generates
+# 3072-bit RSA host keys, so a stock box keeps serving RSA; an old image's
+# 2048-bit key is NOT regenerated (a new key is a changed fingerprint for
+# every client), it is simply left out.
+ssh_hostkeys_rsa_min_bits: 3072
+ssh_hostkeys_ed25519_algorithms:
+  - ssh-ed25519
+  - ssh-ed25519-cert-v01@openssh.com
+ssh_hostkeys_rsa_algorithms:
+  - rsa-sha2-512
+  - rsa-sha2-512-cert-v01@openssh.com
+  - rsa-sha2-256
+  - rsa-sha2-256-cert-v01@openssh.com

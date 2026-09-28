@@ -1,0 +1,68 @@
+---
+# SSH host keys — mirrors step 51 of harden.sh in the sibling Bash repo
+# (ssh-audit / CIS 5.1). ssh_crypto took the NIST P-curves out of the key
+# exchange; the host still PROVED its identity with one. Measured on a fresh
+# debian:13 node: openssh-server generates RSA-3072, ECDSA nistp256 and
+# ed25519 host keys and serves all three. This serves ed25519, plus RSA
+# (rsa-sha2-* only) when the key is big enough.
+#
+# Two pins, both measured necessary: HostKey lines, and HostKeyAlgorithms.
+# HostKey lines ACCUMULATE across the config (first-wins does not apply), so
+# a stray `HostKey ...ecdsa_key` in the main file kept ECDSA served until the
+# algorithms pin went in (the CI plants exactly that line).
+#
+# Nothing is regenerated - a new key is a new fingerprint and every client
+# that trusted the old one sees "REMOTE HOST IDENTIFICATION HAS CHANGED".
+# Only a MISSING ed25519 key is created. The one client this bites
+# (measured): one whose known_hosts holds ONLY the ECDSA key - connect it
+# once before with UpdateHostKeys, or re-scan with ssh-keyscan -t ed25519.
+- name: Create the ed25519 host key if it is missing (never regenerate)
+  ansible.builtin.command:
+    cmd: ssh-keygen -q -t ed25519 -N '' -f /etc/ssh/ssh_host_ed25519_key
+    creates: /etc/ssh/ssh_host_ed25519_key
+
+- name: Check whether an RSA host key exists
+  ansible.builtin.stat:
+    path: /etc/ssh/ssh_host_rsa_key.pub
+  register: ssh_hostkeys_rsa_pub
+
+# Read-only probe: runs in --check too, so the rendered drop-in matches what
+# a real run would write.
+- name: Read the RSA host key size
+  ansible.builtin.command:
+    cmd: ssh-keygen -lf /etc/ssh/ssh_host_rsa_key.pub
+  register: ssh_hostkeys_rsa_len
+  when: ssh_hostkeys_rsa_pub.stat.exists
+  changed_when: false
+  check_mode: false
+
+- name: Decide whether RSA is served
+  ansible.builtin.set_fact:
+    ssh_hostkeys_serve_rsa: >-
+      {{ ssh_hostkeys_rsa_pub.stat.exists
+         and (ssh_hostkeys_rsa_len.stdout.split()[0] | int) >= ssh_hostkeys_rsa_min_bits }}
+
+- name: Say so when an undersized RSA key is left out (not regenerated)
+  ansible.builtin.debug:
+    msg: >-
+      The RSA host key is {{ ssh_hostkeys_rsa_len.stdout.split()[0] }} bits - under
+      {{ ssh_hostkeys_rsa_min_bits }}, so it is not served, and NOT regenerated
+      (clients would see a changed identity).
+  when: ssh_hostkeys_rsa_pub.stat.exists and not ssh_hostkeys_serve_rsa
+
+- name: Pin the SSH host keys (ed25519, RSA only if big enough, no ECDSA)
+  ansible.builtin.copy:
+    content: |
+      # Managed by Ansible (ssh_hostkeys role). Edit the role, not this file.
+      # Host identity: ed25519, plus RSA only at {{ ssh_hostkeys_rsa_min_bits }} bits or more. No ECDSA.
+      HostKey /etc/ssh/ssh_host_ed25519_key
+      {% if ssh_hostkeys_serve_rsa %}
+      HostKey /etc/ssh/ssh_host_rsa_key
+      {% endif %}
+      HostKeyAlgorithms {{ (ssh_hostkeys_ed25519_algorithms + (ssh_hostkeys_rsa_algorithms if ssh_hostkeys_serve_rsa else [])) | join(',') }}
+    dest: /etc/ssh/sshd_config.d/96-hardening-hostkeys.conf
+    owner: root
+    group: root
+    mode: "0644"
+    validate: "sshd -t -f %s"
+  notify: Reload ssh for host key policy
