@@ -1449,7 +1449,10 @@ expect_ok "the planted global/never-expiring drop-in is still there (the overrid
 # sudo with -n (never prompt). Measured with the planted global cache: B and
 # C both ran sudo without a password. A that fails is a broken probe, not a
 # pass.
-probe=$(on_node sudo bash -s <<'PROBE' 2>&1 || true
+# Shipped as a FILE and run with stdin from /dev/null: fed through
+# `bash -s`, the `script` of step A swallowed the rest of the probe from
+# stdin - B, C and the cleanup never ran (the first CI run of this check).
+on_node "sudo tee /root/tsprobe.sh >/dev/null" <<'PROBE'
 u=tsprobe$$
 pw='Ts-probe-Pa55word-2026!'
 useradd -m -s /bin/bash "$u" && echo "$u:$pw" | chpasswd
@@ -1459,7 +1462,7 @@ su - "$u" -c "setsid sudo -n true </dev/null >/dev/null 2>&1 && echo PROBE-B-NOT
 su - "$u" -c "script -qc 'sudo -n true >/dev/null 2>&1 && echo PROBE-C-OTHER-TTY-SUDO || echo PROBE-C-REFUSED' /dev/null" 2>/dev/null | tr -d '\r' | grep -o 'PROBE-C-[A-Z-]*'
 rm -f "/etc/sudoers.d/50-$u"; rm -rf "/run/sudo/ts/$u"; userdel -r "$u" >/dev/null 2>&1
 PROBE
-)
+probe=$(on_node "sudo bash /root/tsprobe.sh; sudo rm -f /root/tsprobe.sh" </dev/null 2>&1 || true)
 echo "        probe: $(echo "$probe" | grep -o 'PROBE-[A-Z-]*' | tr '\n' ' ')"
 if [[ "$probe" != *PROBE-A-AUTH-OK* ]]; then
   fail "the probe user authenticated to sudo once in a pty (probe setup)"
