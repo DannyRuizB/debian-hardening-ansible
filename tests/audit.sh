@@ -478,6 +478,19 @@ sudoers_perm=$(on_node stat -c '%a' /etc/sudoers.d/99-hardening-sudo 2>/dev/null
 [ "$sudoers_perm" = "440" ] \
   && P "sudo drop-in permissions sane (440)" \
   || W "sudo drop-in is ${sudoers_perm:-absent}" "mode 0440 (sudo_hardening role)"
+# The credential cache (CIS 5.2.6), graded on the value in effect: global
+# hands one password to every process of the user, -1 never asks again.
+ts_eff=$(on_node sudo -V | grep -E '^(Authentication timestamp timeout|Type of authentication timestamp record):' | tr '\n' ' ')
+ts_min=$(sed -nE 's/.*timeout: (-?[0-9]+)(\.[0-9]+)? minutes.*/\1/p' <<<"$ts_eff")
+if [ -z "$ts_min" ]; then
+  W "could not read sudo's credential cache from sudo -V" "check sudo is installed"
+elif [[ "$ts_eff" != *"record: tty"* ]]; then
+  F "sudo shares its credential window beyond the terminal (${ts_eff##*record: })" "pin 'Defaults timestamp_type=tty' (sudo_timestamp role)"
+elif [ "$ts_min" -lt 0 ] || [ "$ts_min" -gt 15 ]; then
+  F "sudo's credential window is ${ts_min} minutes (never expires when negative)" "pin 'Defaults timestamp_timeout=5' (sudo_timestamp role)"
+else
+  P "sudo's credential cache is per terminal and expires after ${ts_min} minutes (<= 15)"
+fi
 
 echo "-- Core dumps (CIS 1.5) -------------------------------------"
 on_node grep -rqE '^\*[[:space:]]+hard[[:space:]]+core[[:space:]]+0' /etc/security/limits.conf /etc/security/limits.d \

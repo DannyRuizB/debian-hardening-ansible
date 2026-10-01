@@ -1431,6 +1431,46 @@ if [ -s .ssh_ci/hostkeys-before.txt ]; then
   else fail "no host key was regenerated ($changed recorded fingerprint(s) gone)"; fi
 fi
 
+echo "== Role sudo_timestamp (step 52): sudo credential cache =="
+# The value in effect, not the file: `sudo -V` as root prints what sudoers
+# resolved to. The CI planted a drop-in (40-ci-convenience) that shares the
+# window with every process of the user and never closes it - it is still
+# there, so this proves the 99- drop-in WINS, not that the offender was gone.
+eff=$(on_node "sudo bash -c 'sudo -V'" 2>/dev/null | grep -E '^(Authentication timestamp timeout|Type of authentication timestamp record):' | tr '\n' ' ')
+echo "        sudo -V: ${eff:-unreadable}"
+if [[ "$eff" == *"timeout: 5.0 minutes"* ]]; then pass "sudo asks again after 5 minutes (timestamp_timeout in effect)"
+else fail "sudo asks again after 5 minutes (timestamp_timeout in effect)"; fi
+if [[ "$eff" == *"record: tty"* ]]; then pass "the credential cache is per terminal (timestamp_type=tty in effect)"
+else fail "the credential cache is per terminal (timestamp_type=tty in effect)"; fi
+expect_ok "the planted global/never-expiring drop-in is still there (the override is what is tested)" \
+  sudo test -f /etc/sudoers.d/40-ci-convenience
+# Behavioural: a throwaway sudoer authenticates ONCE in a real pty (A); then
+# the same user, from a job with no tty (B) and from a second pty (C), asks
+# sudo with -n (never prompt). Measured with the planted global cache: B and
+# C both ran sudo without a password. A that fails is a broken probe, not a
+# pass.
+probe=$(on_node sudo bash -s <<'PROBE' 2>&1 || true
+u=tsprobe$$
+pw='Ts-probe-Pa55word-2026!'
+useradd -m -s /bin/bash "$u" && echo "$u:$pw" | chpasswd
+printf '%s ALL=(ALL) ALL\n' "$u" > "/etc/sudoers.d/50-$u" && chmod 440 "/etc/sudoers.d/50-$u"
+su - "$u" -c "script -qc 'printf \"%s\\n\" \"$pw\" | sudo -S -p \"\" true && echo PROBE-A-AUTH-OK' /dev/null" 2>/dev/null | tr -d '\r' | grep -o 'PROBE-A-AUTH-OK'
+su - "$u" -c "setsid sudo -n true </dev/null >/dev/null 2>&1 && echo PROBE-B-NOTTY-SUDO || echo PROBE-B-REFUSED" 2>/dev/null
+su - "$u" -c "script -qc 'sudo -n true >/dev/null 2>&1 && echo PROBE-C-OTHER-TTY-SUDO || echo PROBE-C-REFUSED' /dev/null" 2>/dev/null | tr -d '\r' | grep -o 'PROBE-C-[A-Z-]*'
+rm -f "/etc/sudoers.d/50-$u"; rm -rf "/run/sudo/ts/$u"; userdel -r "$u" >/dev/null 2>&1
+PROBE
+)
+echo "        probe: $(echo "$probe" | grep -o 'PROBE-[A-Z-]*' | tr '\n' ' ')"
+if [[ "$probe" != *PROBE-A-AUTH-OK* ]]; then
+  fail "the probe user authenticated to sudo once in a pty (probe setup)"
+else
+  pass "the probe user authenticated to sudo once in a pty (probe setup)"
+  if [[ "$probe" == *PROBE-B-REFUSED* ]]; then pass "a job of the same user with NO tty is asked again (no shared window)"
+  else fail "a job of the same user with NO tty is asked again (no shared window)"; fi
+  if [[ "$probe" == *PROBE-C-REFUSED* ]]; then pass "a second pty of the same user is asked again (no shared window)"
+  else fail "a second pty of the same user is asked again (no shared window)"; fi
+fi
+
 # LAST on purpose: banning the client cuts our own SSH access to the node.
 # Lift the shield installed at the top — from here on we WANT to be bannable.
 # (It used to sit before the pw_history section; every section appended

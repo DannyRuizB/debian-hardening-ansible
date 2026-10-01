@@ -1,0 +1,4 @@
+---
+# How long a sudo password stays valid for the terminal that typed it.
+# CIS 5.2.6 asks for 15 minutes or less; Debian ships 15.
+sudo_timestamp_minutes: 5

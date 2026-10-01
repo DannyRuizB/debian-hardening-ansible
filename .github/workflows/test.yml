@@ -352,6 +352,18 @@ jobs:
           ansible-playbook -i tests/inventory_first_run.ini site.yml --check
           -e @tests/vars_ci.yml -e @tests/.ssh_ci/pubkey.yml
 
+      # sudo_timestamp: Debian ships sudo's credential cache per tty, 15
+      # minutes - so the offender is planted and KEPT: a convenience drop-in
+      # sharing the window with every process of the user and never closing
+      # it. Measured: with it, a no-tty job and a second pty of the user both
+      # run sudo without a password.
+      - name: Plant a global, never-expiring sudo credential cache for sudo_timestamp
+        run: |
+          docker exec dh-test-node bash -c '
+            printf "Defaults timestamp_type=global\nDefaults timestamp_timeout=-1\n" > /etc/sudoers.d/40-ci-convenience &&
+            chmod 440 /etc/sudoers.d/40-ci-convenience && visudo -cf /etc/sudoers.d/40-ci-convenience >/dev/null &&
+            sudo -V | grep -E "^(Authentication timestamp timeout|Type of authentication timestamp record):"'
+
       - name: "First pass: harden the node (connecting as root)"
         run: >
           ansible-playbook -i tests/inventory_first_run.ini site.yml
