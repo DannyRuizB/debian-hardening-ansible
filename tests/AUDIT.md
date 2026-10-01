@@ -90,7 +90,7 @@ section with three more: rkhunter installed, the property baseline present,
 and a daily check timer enabled. Every role since has kept the pattern — the
 audit grows a section when site.yml grows a role, so the score always grades
 what the play actually promises — whatever the most recent role happens to
-be. Current score on a freshly hardened node — **measured, not typed**: boot a
+be. Current score on a freshly hardened node — **measured, not typed**, and since role 52 by the CI itself, which fails when this line disagrees with the run: boot a
 node, plant the CI's offenders, run the playbook and audit (after the second,
 changed=0 pass too — every check that could drift between the two passes is
 graded by what the node does, not by what the file says). This line said
@@ -99,7 +99,7 @@ inventory never ran) and graded an MTA by being installed instead of where
 it listens — the Bash twin's node, measured, scored 164 with 3 WARN:
 
 ```
- Score: 171 PASS, 0 WARN, 0 FAIL  ->  100% compliant
+ Score: 172 PASS, 0 WARN, 0 FAIL  ->  100% compliant
 ```
 
 ## Honesty
