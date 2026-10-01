@@ -1,0 +1,42 @@
+---
+# Sudo credential cache — mirrors step 52 of harden.sh in the sibling Bash
+# repo (CIS 5.2.6). After a correct password sudo caches the credential: for
+# timestamp_timeout minutes the next sudo asks for nothing, and
+# timestamp_type decides WHO shares that window. Measured on debian:13 (sudo
+# 1.9.16p2): Debian ships it per tty, 15 minutes - a second pty of the same
+# user, or a job of theirs with no tty, is asked again. One
+# `Defaults timestamp_type=global` in any drop-in and authenticating ONCE
+# lets every process of that user run sudo without a password (the no-tty
+# job and the second pty both did); `timestamp_timeout=-1` never closes the
+# window. sudoers is last-match-wins and sudoers.d is read in lexical order
+# after the main file, so this 99- drop-in has the final word over what came
+# before it. 'validate' runs visudo on the rendered file before it goes live.
+
+- name: Pin sudo's credential cache (per terminal, short window), visudo-validated
+  ansible.builtin.copy:
+    content: |
+      Defaults timestamp_type=tty
+      Defaults timestamp_timeout={{ sudo_timestamp_minutes }}
+    dest: /etc/sudoers.d/99-hardening-timestamp
+    owner: root
+    group: root
+    mode: "0440"
+    validate: "visudo -cf %s"
+
+# The value in effect, not the file: a drop-in sorting after this one would
+# override it, and `sudo -V` (as root) is what sudo resolved to.
+- name: Read the credential cache policy sudo actually applies
+  ansible.builtin.command: sudo -V
+  register: sudo_timestamp_effective
+  changed_when: false
+  check_mode: false
+
+- name: Warn when a later sudoers file overrides the credential cache policy
+  ansible.builtin.debug:
+    msg: >-
+      WARNING: a sudoers file sorting after 99-hardening-timestamp overrides it -
+      {{ sudo_timestamp_effective.stdout_lines | select('match', '^(Authentication timestamp timeout|Type of authentication timestamp record):') | join('; ') }}
+  when: >-
+    not ansible_check_mode and (
+    ('Authentication timestamp timeout: ' ~ sudo_timestamp_minutes ~ '.0 minutes') not in sudo_timestamp_effective.stdout_lines
+    or 'Type of authentication timestamp record: tty' not in sudo_timestamp_effective.stdout_lines)

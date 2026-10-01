@@ -132,6 +132,10 @@
     # most a missing ed25519 key created - no apt, no /var/log, position
     # free. Mirrors step 51 in the Bash twin.
     - ssh_hostkeys
+    # Sudo credential cache: one sudoers drop-in (timestamp_type=tty +
+    # timestamp_timeout), visudo-validated - no apt, no /var/log, position
+    # free. Mirrors step 52 in the Bash twin.
+    - sudo_timestamp
     # Egress filtering: owns the ufw OUTBOUND policy (the ufw role stands
     # down on it). LAST on purpose - every role that installs a package
     # reaches its mirror before the outbound door narrows to the allowlist,
