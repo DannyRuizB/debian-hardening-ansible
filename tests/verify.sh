@@ -1500,6 +1500,21 @@ else
   fail "a neighbour routing 127.0.0.1 via the node gets no answer from its loopback sshd ($lo_res)"
 fi
 
+echo "== arp_flux (step 54 in the Bash twin) =="
+expect_line "arp_ignore is 1 (answer ARP only for the interface asked)" '^1$' \
+  sudo sysctl -n net.ipv4.conf.all.arp_ignore
+expect_line "arp_announce is 2 (announce the interface's own address)" '^2$' \
+  sudo sysctl -n net.ipv4.conf.all.arp_announce
+# Behavioural: a second network is attached for the probe and removed after.
+# The CI measured LEAKS before the play; here neither leak may show.
+arp_res=$(./arp-probe.sh dh-test-node)
+echo "        ARP probe: $arp_res"
+if [[ "$arp_res" == RESULT=CLEAN* ]]; then
+  pass "a two-network node gives neither address away on the other network (no reply, own sender IP)"
+else
+  fail "a two-network node gives neither address away on the other network ($arp_res)"
+fi
+
 # LAST on purpose: banning the client cuts our own SSH access to the node.
 # Lift the shield installed at the top — from here on we WANT to be bannable.
 # (It used to sit before the pw_history section; every section appended

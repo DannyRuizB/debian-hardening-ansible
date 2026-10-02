@@ -1,0 +1,4 @@
+---
+# ARP flux (mirrors step 54 of harden.sh in the Bash twin).
+arp_flux_enabled: true
+arp_flux_sysctl_dropin: /etc/sysctl.d/99-hardening-arp.conf

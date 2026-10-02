@@ -140,6 +140,9 @@
     # ufw's before.rules - after the ufw role, which owns the file. Mirrors
     # step 53 in the Bash twin.
     - loopback_isolation
+    # ARP flux: one sysctl drop-in (arp_ignore=1, arp_announce=2), touches
+    # nothing another role owns. Mirrors step 54 in the Bash twin.
+    - arp_flux
     # Egress filtering: owns the ufw OUTBOUND policy (the ufw role stands
     # down on it). LAST on purpose - every role that installs a package
     # reaches its mirror before the outbound door narrows to the allowlist,
