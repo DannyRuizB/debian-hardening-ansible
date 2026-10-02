@@ -629,8 +629,12 @@ orphan_count=$(on_node bash -c 'find / -xdev \( -path /tmp -o -path /var/tmp \) 
   || W "orphan files present ($orphan_count)" "chown root:root them (file_permissions role)"
 
 echo "-- SSH access control (CIS 5.2) -----------------------------"
-on_node sshd -T 2>/dev/null | grep -qi '^allowgroups ' \
-  && P "sshd restricts login to an AllowGroups list ($(on_node sshd -T 2>/dev/null | grep -i '^allowgroups ' | awk '{print $2}'))" \
+# Read from the sshd -T taken once at the top, like every other sshd check:
+# a second `sshd -T | grep -q` through docker exec under pipefail can report
+# no match when grep exits first (it did once in CI, while the drop-in and
+# the line were there).
+[ -n "$(val allowgroups)" ] \
+  && P "sshd restricts login to an AllowGroups list ($(val allowgroups))" \
   || W "sshd has no AllowGroups restriction" "limit SSH login to a group (ssh_access role)"
 
 echo "-- Service sandboxing (systemd) -----------------------------"
