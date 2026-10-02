@@ -1474,6 +1474,32 @@ else
   else fail "a second pty of the same user is asked again (no shared window)"; fi
 fi
 
+echo "== loopback_isolation (step 53 in the Bash twin) =="
+# Two layers, each checked as it is in effect, then the behaviour.
+expect_line "route_localnet is 0 for all interfaces (kernel refuses 127/8 off lo)" '^0$' \
+  sysctl -n net.ipv4.conf.all.route_localnet
+expect_line "route_localnet is 0 for new interfaces (default)" '^0$' \
+  sysctl -n net.ipv4.conf.default.route_localnet
+expect_line "ufw drops non-loopback traffic TO 127.0.0.0/8 (live rule)" '^-A ufw-before-input -d 127\.0\.0\.0/8 ! -i lo -j DROP$' \
+  sudo iptables -S ufw-before-input
+expect_line "ufw drops non-loopback traffic FROM 127.0.0.0/8 (live rule)" '^-A ufw-before-input -s 127\.0\.0\.0/8 ! -i lo -j DROP$' \
+  sudo iptables -S ufw-before-input
+# Behavioural, and the hard case on purpose: route_localnet is turned back ON
+# now, as kube-proxy would after the playbook has left - so what is tested is
+# the firewall layer alone. The CI measured the same probe ALLOWED before
+# hardening; here no SYN-ACK may come back, AND the DROP rule's counter must
+# move (a probe that never reached the node is not a pass).
+docker exec dh-test-node sysctl -qw net.ipv4.conf.all.route_localnet=1
+lo_res=$(./loopback-probe.sh dh-test-node)
+docker exec dh-test-node sysctl -qw net.ipv4.conf.all.route_localnet=0
+echo "        loopback probe (route_localnet re-planted to 1): $lo_res"
+lo_dropped=$(sed -n 's/.*DROPPED=\([0-9]*\).*/\1/p' <<<"$lo_res")
+if [[ "$lo_res" == RESULT=DENIED* ]] && [ "${lo_dropped:-0}" -gt 0 ]; then
+  pass "a neighbour routing 127.0.0.1 via the node gets no answer from its loopback sshd (dropped by the rule: $lo_dropped)"
+else
+  fail "a neighbour routing 127.0.0.1 via the node gets no answer from its loopback sshd ($lo_res)"
+fi
+
 # LAST on purpose: banning the client cuts our own SSH access to the node.
 # Lift the shield installed at the top — from here on we WANT to be bannable.
 # (It used to sit before the pw_history section; every section appended

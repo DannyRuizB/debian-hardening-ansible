@@ -364,6 +364,23 @@ jobs:
             chmod 440 /etc/sudoers.d/40-ci-convenience && visudo -cf /etc/sudoers.d/40-ci-convenience >/dev/null &&
             sudo -V | grep -E "^(Authentication timestamp timeout|Type of authentication timestamp record):"'
 
+      # loopback_isolation: kube-proxy (and some Docker setups) turn
+      # route_localnet on, and then a neighbour that routes 127.0.0.1 via this
+      # box reaches what it only serves on localhost. Planted the way
+      # kube-proxy does it (all), and MEASURED before hardening: the probe must
+      # see sshd answer on 127.0.0.1:22 from the neighbour, or its DENIED in
+      # verify proves nothing.
+      - name: Plant route_localnet=1 for loopback_isolation and measure the exposure
+        run: |
+          docker exec dh-test-node sysctl -w net.ipv4.conf.all.route_localnet=1
+          res=$(./tests/loopback-probe.sh dh-test-node)
+          echo "before hardening: $res"
+          case "$res" in
+            RESULT=ALLOWED*) ;;
+            *) echo "::error::the loopback probe cannot reach 127.0.0.1 even with route_localnet=1 - a DENIED after hardening would prove nothing"
+               exit 1;;
+          esac
+
       - name: "First pass: harden the node (connecting as root)"
         run: >
           ansible-playbook -i tests/inventory_first_run.ini site.yml

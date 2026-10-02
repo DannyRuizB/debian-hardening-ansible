@@ -1,0 +1,9 @@
+---
+- name: Apply loopback sysctl
+  ansible.builtin.command: sysctl -q -p {{ loopback_isolation_sysctl_dropin }}
+  changed_when: true
+  failed_when: false
+
+- name: Reload ufw for loopback isolation
+  ansible.builtin.command: ufw reload
+  changed_when: true
