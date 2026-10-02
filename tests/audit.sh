@@ -629,8 +629,12 @@ orphan_count=$(on_node bash -c 'find / -xdev \( -path /tmp -o -path /var/tmp \) 
   || W "orphan files present ($orphan_count)" "chown root:root them (file_permissions role)"
 
 echo "-- SSH access control (CIS 5.2) -----------------------------"
-on_node sshd -T 2>/dev/null | grep -qi '^allowgroups ' \
-  && P "sshd restricts login to an AllowGroups list ($(on_node sshd -T 2>/dev/null | grep -i '^allowgroups ' | awk '{print $2}'))" \
+# Read from the sshd -T taken once at the top, like every other sshd check:
+# a second `sshd -T | grep -q` through docker exec under pipefail can report
+# no match when grep exits first (it did once in CI, while the drop-in and
+# the line were there).
+[ -n "$(val allowgroups)" ] \
+  && P "sshd restricts login to an AllowGroups list ($(val allowgroups))" \
   || W "sshd has no AllowGroups restriction" "limit SSH login to a group (ssh_access role)"
 
 echo "-- Service sandboxing (systemd) -----------------------------"
@@ -891,6 +895,18 @@ elif [ "$jit" = 2 ]; then
 else
   W "net.core.bpf_jit_harden is $jit, not 2" "run the exploit_mitigations role"
 fi
+
+echo "-- Loopback isolation ---------------------------------------"
+# route_localnet is an OR of `all` and the interface; `all` is what a box's
+# own config controls. The firewall rule is what still holds when something
+# turns it on later (kube-proxy), so it is graded on its own.
+rl=$(on_node sysctl -n net.ipv4.conf.all.route_localnet)
+[ "$rl" = "0" ] \
+  && P "route_localnet is 0 (127.0.0.0/8 is not routable off lo)" \
+  || F "route_localnet is ${rl:-unreadable}: a neighbour can reach services bound to 127.0.0.1" "pin net.ipv4.conf.all.route_localnet=0 (loopback_isolation role)"
+on_node iptables -S ufw-before-input | grep -qxF -- '-A ufw-before-input -d 127.0.0.0/8 ! -i lo -j DROP' \
+  && P "ufw drops non-loopback traffic to 127.0.0.0/8" \
+  || F "no firewall rule keeps 127.0.0.0/8 off the wire" "add the loopback DROP to /etc/ufw/before.rules (loopback_isolation role)"
 
 echo "-- Accounts & files -----------------------------------------"
 on_node getent group sudo | grep -qE ':.*[a-z]' \

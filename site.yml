@@ -136,6 +136,10 @@
     # timestamp_timeout), visudo-validated - no apt, no /var/log, position
     # free. Mirrors step 52 in the Bash twin.
     - sudo_timestamp
+    # Loopback isolation: a sysctl drop-in (route_localnet=0) and a DROP in
+    # ufw's before.rules - after the ufw role, which owns the file. Mirrors
+    # step 53 in the Bash twin.
+    - loopback_isolation
     # Egress filtering: owns the ufw OUTBOUND policy (the ufw role stands
     # down on it). LAST on purpose - every role that installs a package
     # reaches its mirror before the outbound door narrows to the allowlist,

@@ -1,0 +1,5 @@
+---
+# Loopback isolation (mirrors step 53 of harden.sh in the Bash twin).
+loopback_isolation_enabled: true
+loopback_isolation_sysctl_dropin: /etc/sysctl.d/99-hardening-loopback.conf
+loopback_isolation_ufw_rules: /etc/ufw/before.rules

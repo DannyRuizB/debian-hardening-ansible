@@ -1,0 +1,65 @@
+---
+# Loopback isolation — mirrors step 53 of harden.sh in the sibling Bash repo.
+# A service bound to 127.0.0.1 (Redis, a database, an admin panel, the Docker
+# API on 2375) is "safe because it is localhost" only while the kernel
+# refuses 127.0.0.0/8 as a destination off lo: route_localnet=0. kube-proxy
+# sets it to 1, and the knob is an OR of `all` and the interface. Measured in
+# a netns pair: a neighbour routing 127.0.0.1 via the box wrote to a
+# 127.0.0.1-only UDP listener with route_localnet=1 (all=0 + eth0=1 too), not
+# with 0; under ufw it got sshd's SYN-ACK from 127.0.0.1:22 (an allowed port),
+# and with a trusted-LAN rule it reached everything on localhost. Two layers:
+# route_localnet=0 for all/default, and a DROP in ufw's before.rules right
+# after the lo ACCEPT, which holds whatever route_localnet says later.
+
+- name: Isolate the loopback
+  when: loopback_isolation_enabled | bool
+  block:
+    - name: Pin route_localnet to 0 (all and new interfaces)
+      ansible.builtin.copy:
+        content: |
+          # Managed by Ansible (loopback_isolation role). Edit the role, not this file.
+          net.ipv4.conf.all.route_localnet = 0
+          net.ipv4.conf.default.route_localnet = 0
+        dest: "{{ loopback_isolation_sysctl_dropin }}"
+        owner: root
+        group: root
+        mode: "0644"
+      notify: Apply loopback sysctl
+
+    # Named, not flipped: whatever set an interface to 1 did it on purpose
+    # and would set it again. The firewall rule below covers it.
+    - name: Find interfaces that already have route_localnet=1
+      ansible.builtin.shell: |
+        set -o pipefail
+        grep -l '^1$' /proc/sys/net/ipv4/conf/*/route_localnet 2>/dev/null \
+          | sed 's|/proc/sys/net/ipv4/conf/||; s|/route_localnet||' | grep -vxE 'all|default' || true
+      args:
+        executable: /bin/bash
+      register: loopback_isolation_on
+      changed_when: false
+      check_mode: false
+
+    - name: Warn about interfaces left with route_localnet=1
+      ansible.builtin.debug:
+        msg: >-
+          WARNING: route_localnet=1 on {{ loopback_isolation_on.stdout_lines | join(', ') }}
+          (something set it on purpose) - left alone; the ufw loopback DROP covers it
+      when: loopback_isolation_on.stdout_lines | length > 0
+
+    - name: Check that ufw's before.rules is there to carry the rule
+      ansible.builtin.stat:
+        path: "{{ loopback_isolation_ufw_rules }}"
+      register: loopback_isolation_rules
+
+    # Right after the lo ACCEPT, before every user rule: an `ufw allow` (or a
+    # trusted-subnet rule) would otherwise accept the packet first.
+    - name: Drop non-loopback traffic to and from 127.0.0.0/8 in ufw's before.rules
+      ansible.builtin.blockinfile:
+        path: "{{ loopback_isolation_ufw_rules }}"
+        insertafter: '^-A ufw-before-input -i lo -j ACCEPT$'
+        marker: "# {mark} harden loopback isolation: 127.0.0.0/8 lives on lo, never on the wire"
+        block: |
+          -A ufw-before-input ! -i lo -d 127.0.0.0/8 -j DROP
+          -A ufw-before-input ! -i lo -s 127.0.0.0/8 -j DROP
+      when: loopback_isolation_rules.stat.exists
+      notify: Reload ufw for loopback isolation
