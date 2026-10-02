@@ -1477,9 +1477,9 @@ fi
 echo "== loopback_isolation (step 53 in the Bash twin) =="
 # Two layers, each checked as it is in effect, then the behaviour.
 expect_line "route_localnet is 0 for all interfaces (kernel refuses 127/8 off lo)" '^0$' \
-  sysctl -n net.ipv4.conf.all.route_localnet
+  sudo sysctl -n net.ipv4.conf.all.route_localnet
 expect_line "route_localnet is 0 for new interfaces (default)" '^0$' \
-  sysctl -n net.ipv4.conf.default.route_localnet
+  sudo sysctl -n net.ipv4.conf.default.route_localnet
 expect_line "ufw drops non-loopback traffic TO 127.0.0.0/8 (live rule)" '^-A ufw-before-input -d 127\.0\.0\.0/8 ! -i lo -j DROP$' \
   sudo iptables -S ufw-before-input
 expect_line "ufw drops non-loopback traffic FROM 127.0.0.0/8 (live rule)" '^-A ufw-before-input -s 127\.0\.0\.0/8 ! -i lo -j DROP$' \
