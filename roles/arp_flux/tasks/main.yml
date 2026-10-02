@@ -1,0 +1,26 @@
+---
+# ARP flux — mirrors step 54 of harden.sh in the sibling Bash repo. Linux
+# answers ARP for ANY of its addresses on ANY interface and picks the sender
+# IP of its own ARP requests from the packet: a box on two networks gives
+# one network's address away on the other. Measured (debian:13 attached to a
+# second Docker network, neighbour on the first): with the defaults 0/0 the
+# box answered `arping -I eth0 <eth1 address>` twice, and its own request on
+# eth0 said "tell <eth1 address>"; arp_ignore=1 / arp_announce=2 close one
+# leak each (all four combinations measured). Both are max(all, interface),
+# so `all` covers every interface. Not claimed: that the other address is
+# unreachable by routing - that is the firewall's job.
+
+- name: Answer ARP only for the interface asked, announce its own address
+  ansible.builtin.copy:
+    content: |
+      # Managed by Ansible (arp_flux role). Edit the role, not this file.
+      net.ipv4.conf.all.arp_ignore = 1
+      net.ipv4.conf.default.arp_ignore = 1
+      net.ipv4.conf.all.arp_announce = 2
+      net.ipv4.conf.default.arp_announce = 2
+    dest: "{{ arp_flux_sysctl_dropin }}"
+    owner: root
+    group: root
+    mode: "0644"
+  when: arp_flux_enabled | bool
+  notify: Apply ARP flux sysctl
