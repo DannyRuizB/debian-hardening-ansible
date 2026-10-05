@@ -1,0 +1,28 @@
+---
+# ARP spoofing guard - mirrors step 55 of harden.sh in the sibling Bash repo.
+# Step 54 (arp_flux) stopped the box GIVING an address away; this stops it
+# BELIEVING a neighbour's lie. Measured (debian:13) both knobs ship 0, so each
+# does real work:
+#   - drop_gratuitous_arp=1 drops the UNSOLICITED ARP reply a poisoner
+#     broadcasts to overwrite a cache entry (bind a victim's IP to the
+#     attacker's MAC); with 0 the kernel accepts it.
+#   - arp_filter=1 makes each interface answer ARP only for the address that
+#     lives on it, so an attacker on one segment cannot farm the MACs of
+#     addresses on another.
+# Both are max(all, interface), so `all` covers every interface. Not claimed:
+# that this replaces static ARP or 802.1X on a hostile LAN.
+
+- name: Drop gratuitous ARP and answer only for the interface's own address
+  ansible.builtin.copy:
+    content: |
+      # Managed by Ansible (arp_spoof_guard role). Edit the role, not this file.
+      net.ipv4.conf.all.drop_gratuitous_arp = 1
+      net.ipv4.conf.default.drop_gratuitous_arp = 1
+      net.ipv4.conf.all.arp_filter = 1
+      net.ipv4.conf.default.arp_filter = 1
+    dest: "{{ arp_spoof_guard_sysctl_dropin }}"
+    owner: root
+    group: root
+    mode: "0644"
+  when: arp_spoof_guard_enabled | bool
+  notify: Apply ARP spoofing-guard sysctl

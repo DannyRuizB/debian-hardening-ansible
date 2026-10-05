@@ -1,0 +1,5 @@
+---
+- name: Apply ARP spoofing-guard sysctl
+  ansible.builtin.command: sysctl -q -p {{ arp_spoof_guard_sysctl_dropin }}
+  changed_when: true
+  failed_when: false
