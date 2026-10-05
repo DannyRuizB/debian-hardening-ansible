@@ -1,0 +1,4 @@
+---
+# ARP spoofing guard (mirrors step 55 of harden.sh in the Bash twin).
+arp_spoof_guard_enabled: true
+arp_spoof_guard_sysctl_dropin: /etc/sysctl.d/99-hardening-arp-spoof.conf
