@@ -381,6 +381,20 @@ jobs:
                exit 1;;
           esac
 
+      # arp_flux: Debian ships arp_ignore=0 / arp_announce=0 (nothing to
+      # plant). Measured before the play: with a second network attached the
+      # node must answer ARP for that address on its first network, or the
+      # probe's CLEAN in verify proves nothing.
+      - name: Measure the ARP flux before the play (arp_flux)
+        run: |
+          res=$(./tests/arp-probe.sh dh-test-node)
+          echo "before hardening: $res"
+          case "$res" in
+            RESULT=LEAKS*) ;;
+            *) echo "::error::the ARP probe sees no leak even with the kernel defaults - a CLEAN after hardening would prove nothing"
+               exit 1;;
+          esac
+
       - name: "First pass: harden the node (connecting as root)"
         run: >
           ansible-playbook -i tests/inventory_first_run.ini site.yml

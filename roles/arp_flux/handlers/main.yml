@@ -1,0 +1,5 @@
+---
+- name: Apply ARP flux sysctl
+  ansible.builtin.command: sysctl -q -p {{ arp_flux_sysctl_dropin }}
+  changed_when: true
+  failed_when: false

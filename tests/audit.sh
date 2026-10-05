@@ -908,6 +908,14 @@ on_node iptables -S ufw-before-input | grep -qxF -- '-A ufw-before-input -d 127.
   && P "ufw drops non-loopback traffic to 127.0.0.0/8" \
   || F "no firewall rule keeps 127.0.0.0/8 off the wire" "add the loopback DROP to /etc/ufw/before.rules (loopback_isolation role)"
 
+echo "-- ARP flux -------------------------------------------------"
+[ "$(on_node sysctl -n net.ipv4.conf.all.arp_ignore)" = "1" ] \
+  && P "arp_ignore = 1 (ARP answered only for the interface asked)" \
+  || F "arp_ignore = $(on_node sysctl -n net.ipv4.conf.all.arp_ignore): the box answers ARP for any of its addresses on any network" "pin net.ipv4.conf.all.arp_ignore=1 (arp_flux role)"
+[ "$(on_node sysctl -n net.ipv4.conf.all.arp_announce)" = "2" ] \
+  && P "arp_announce = 2 (ARP requests carry the interface's own address)" \
+  || F "arp_announce = $(on_node sysctl -n net.ipv4.conf.all.arp_announce): ARP requests can announce another network's address" "pin net.ipv4.conf.all.arp_announce=2 (arp_flux role)"
+
 echo "-- Accounts & files -----------------------------------------"
 on_node getent group sudo | grep -qE ':.*[a-z]' \
   && P "A non-root sudo account exists ($(on_node getent group sudo | sed 's/.*://'))" \
