@@ -57,7 +57,11 @@ behaviour. That's the whole loop: **audit → find gaps → remediate → re-aud
 When the baseline later gained the `sysctl_hardening` role, the audit grew with
 it: a **Kernel parameters (CIS network)** section now grades seven of the keys
 the role's drop-in promises (ICMP redirects, source routing, rp_filter, SYN
-cookies, `dmesg_restrict`, `suid_dumpable`). The `account_policies` role added
+cookies, `dmesg_restrict`, `suid_dumpable`). The redirect checks later learned to read every
+interface, not just `all`: IPv4 `send_redirects` is all-OR-interface and IPv6
+reads `accept_redirects` per interface, so `eth0` left at its shipped 1 kept
+redirects live while the old check said PASS (and a third check, ICMPv6
+redirects, joined them). The `account_policies` role added
 an **Account policies (CIS)** section with four more: password max/min age,
 expiry warning, and the inactivity lock for new accounts. The `mount_options`
 role added a **Filesystem mount options (CIS)** section with four more:
@@ -99,7 +103,7 @@ inventory never ran) and graded an MTA by being installed instead of where
 it listens — the Bash twin's node, measured, scored 164 with 3 WARN:
 
 ```
- Score: 178 PASS, 0 WARN, 0 FAIL  ->  100% compliant
+ Score: 179 PASS, 0 WARN, 0 FAIL  ->  100% compliant
 ```
 
 ## Honesty

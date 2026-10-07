@@ -88,6 +88,18 @@ echo "== Kernel hardening (sysctl) =="
 # lives in /usr/sbin, outside the non-root SSH PATH, hence the sudo.
 expect_line "ICMP redirects are not accepted" "^0$" sudo sysctl -n net.ipv4.conf.all.accept_redirects
 expect_line "ICMP redirects are not sent" "^0$" sudo sysctl -n net.ipv4.conf.all.send_redirects
+# ...but `all` is not the effective value: IPv4 send_redirects (and
+# accept_redirects without forwarding) is all-OR-interface, and IPv6 reads
+# accept_redirects per interface. eth0 exists before the play runs and kept
+# its shipped 1 until the drop-in learned globs. Read every interface.
+redir=$(on_node sudo sysctl -a 2>/dev/null | grep -E '^net\.ipv[46]\.conf\.[^ ]+\.(accept|send)_redirects = ' || true)
+# Positive anchor first: an empty listing must not pass as "nothing is on".
+if grep -q '^net\.ipv4\.conf\.eth0\.send_redirects = ' <<<"$redir" \
+   && ! grep -Eq ' = [1-9]' <<<"$redir"; then
+  pass "no interface accepts or sends ICMP redirects ($(wc -l <<<"$redir") keys read, eth0 included)"
+else
+  fail "ICMP redirects still live per interface: $(grep -E ' = [1-9]' <<<"$redir" | tr '\n' ' ')"
+fi
 expect_line "source-routed packets are refused" "^0$" sudo sysctl -n net.ipv4.conf.all.accept_source_route
 expect_line "reverse-path filtering is on" "^1$" sudo sysctl -n net.ipv4.conf.all.rp_filter
 expect_line "martian packets are logged" "^1$" sudo sysctl -n net.ipv4.conf.all.log_martians

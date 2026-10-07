@@ -155,12 +155,25 @@ on_node grep -q 'Unattended-Upgrade "1"' /etc/apt/apt.conf.d/20auto-upgrades \
   || F "Automatic updates not configured" "set APT::Periodic::Unattended-Upgrade 1"
 
 echo "-- Kernel parameters (CIS network) --------------------------"
-[ "$(sctl net.ipv4.conf.all.accept_redirects)" = 0 ] \
-  && P "ICMP redirects not accepted" \
-  || W "ICMP redirects accepted" "set net.ipv4.conf.all.accept_redirects=0"
-[ "$(sctl net.ipv4.conf.all.send_redirects)" = 0 ] \
-  && P "ICMP redirects not sent" \
-  || W "ICMP redirects sent" "set net.ipv4.conf.all.send_redirects=0"
+# Per interface, not just `all`: IPv4 send_redirects (and accept_redirects
+# without forwarding) is all-OR-interface, IPv6 accept_redirects is read per
+# interface — eth0 at its shipped 1 keeps redirects live under all=0.
+redir_on() {  # $1 = ipv4|ipv6, $2 = accept|send; echoes the interfaces still at 1
+  on_node sysctl -a 2>/dev/null \
+    | awk -v re="^net[.]$1[.]conf[.][^ ]+[.]$2_redirects$" '$1 ~ re && $3 != 0 {split($1,k,"."); printf "%s ", k[4]}'
+}
+r=$(redir_on ipv4 accept)
+[ "$(sctl net.ipv4.conf.all.accept_redirects)" = 0 ] && [ -z "$r" ] \
+  && P "ICMP redirects not accepted (IPv4, every interface)" \
+  || W "ICMP redirects accepted on: ${r:-all}" "set net.ipv4.conf.*.accept_redirects=0 (all/default miss existing interfaces)"
+r=$(redir_on ipv4 send)
+[ "$(sctl net.ipv4.conf.all.send_redirects)" = 0 ] && [ -z "$r" ] \
+  && P "ICMP redirects not sent (every interface)" \
+  || W "ICMP redirects sent on: ${r:-all}" "set net.ipv4.conf.*.send_redirects=0 (all/default miss existing interfaces)"
+r=$(redir_on ipv6 accept)
+[ "$(sctl net.ipv6.conf.all.accept_redirects)" = 0 ] && [ -z "$r" ] \
+  && P "ICMPv6 redirects not accepted (every interface)" \
+  || W "ICMPv6 redirects accepted on: ${r:-all}" "set net.ipv6.conf.*.accept_redirects=0 (IPv6 reads it per interface)"
 [ "$(sctl net.ipv4.conf.all.accept_source_route)" = 0 ] \
   && P "Source-routed packets refused" \
   || W "Source routing accepted" "set net.ipv4.conf.all.accept_source_route=0"
