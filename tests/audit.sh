@@ -300,6 +300,25 @@ elif [ "$uns" = 0 ]; then
 else
   W "kernel.unprivileged_userns_clone is $uns, not 0" "run the kernel_surface role"
 fi
+ufd=$(sctl vm.unprivileged_userfaultfd)
+if [ -z "$ufd" ]; then
+  P "vm.unprivileged_userfaultfd not exposed by this kernel (no userfaultfd; pinned in the drop-in regardless)"
+elif [ "$ufd" = 0 ]; then
+  P "vm.unprivileged_userfaultfd = 0 (no kernel-fault userfaultfd without CAP_SYS_PTRACE)"
+else
+  W "vm.unprivileged_userfaultfd is $ufd, not 0: any account can stall a kernel copy mid-way" "run the kernel_surface role"
+fi
+# The other door to the same descriptor (kernels >= 6.1): /dev/userfaultfd.
+# Debian ships it root-only 0600 (measured); a udev rule opening it to a
+# group or to everyone hands out what the sysctl just refused.
+udev_mode=$(docker exec "$NODE" stat -c %a /dev/userfaultfd 2>/dev/null || true)
+if [ -z "$udev_mode" ]; then
+  P "/dev/userfaultfd absent (kernel < 6.1 or not exposed here)"
+elif [ "${udev_mode: -2}" = "00" ]; then
+  P "/dev/userfaultfd is owner-only (mode $udev_mode)"
+else
+  W "/dev/userfaultfd is mode $udev_mode: group/others can open a userfaultfd past the sysctl" "drop the udev rule that widened it (back to 0600 root)"
+fi
 
 echo "-- SUID diet (CIS 6.1.13) ----------------------------------"
 # Five identity self-service tools a headless server never needs, stripped

@@ -27,6 +27,15 @@
 #     ansible.posix.sysctl (the module fails on a missing key).
 #     user.max_user_namespaces=0 is NOT the substitute: it forbids root too
 #     (containers, systemd PrivateUsers=).
+#   vm.unprivileged_userfaultfd=0: userfaultfd(2) lets a process catch the
+#     page faults the KERNEL takes while copying from its memory, freezing
+#     a syscall mid-way for as long as it likes - the standard way to win a
+#     kernel race. 0 refuses that descriptor without CAP_SYS_PTRACE and still
+#     allows UFFD_USER_MODE_ONLY (what CRIU-style tools need). Measured on
+#     the CI runner (6.17): nobody opens a full descriptor at 1 and gets
+#     EPERM at 0, the user-mode one opens either way, root is unaffected.
+#     Modern kernels ship 0 (runner and WSL, measured): a pin against
+#     whatever flips it to 1 - the CI plants that 1.
 
 - name: Pin the kernel attack-surface sysctls in their own drop-in
   ansible.builtin.copy:
@@ -38,7 +47,8 @@
       # Managed by Ansible (kernel_surface role). Edit the role, not this file.
       # Close the kernel interfaces a headless server never needs: no io_uring
       # rings, no magic SysRq hotkeys, no tty line-discipline autoload, no
-      # unprivileged user namespaces (where the kernel carries the knob).
+      # unprivileged user namespaces (where the kernel carries the knob), no
+      # kernel-fault userfaultfd for unprivileged accounts.
       {% for k, v in kernel_surface_values.items() %}
       {{ k }} = {{ v }}
       {% endfor %}

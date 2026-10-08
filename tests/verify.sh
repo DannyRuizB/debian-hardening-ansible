@@ -1305,8 +1305,31 @@ elif [ "$uns" = 0 ]; then
 else
   fail "unprivileged_userns_clone should be 0, got $uns"
 fi
+# userfaultfd: the CI plants 1. The knob must read 0 AND the admin account
+# (no CAP_SYS_PTRACE) must be refused a full descriptor while still getting a
+# user-mode-only one - the anchor that the syscall is reachable from this
+# account at all, so the EPERM is the knob and not a seccomp filter (under
+# Docker's default profile BOTH are refused - measured - and this fails).
+ufd=$(on_node "sudo sysctl -n vm.unprivileged_userfaultfd 2>/dev/null" 2>/dev/null || true)
+if [ -z "$ufd" ]; then
+  pass "vm.unprivileged_userfaultfd not exposed by this kernel (no userfaultfd) — pinned in the drop-in regardless"
+else
+  if [ "$ufd" = 0 ]; then
+    pass "unprivileged userfaultfd is limited to user-mode faults (vm.unprivileged_userfaultfd = 0)"
+  else
+    fail "vm.unprivileged_userfaultfd should be 0, got $ufd"
+  fi
+  uffd=$(on_node perl < uffd-probe.pl 2>/dev/null || true)
+  if [ "$uffd" = "full=errno1 usermode=open" ]; then
+    pass "the admin account is refused a kernel-fault userfaultfd (EPERM) and still gets a user-mode one"
+  else
+    fail "the admin account is refused a kernel-fault userfaultfd (probe said: ${uffd:-nothing})"
+  fi
+fi
 expect_line "the kernel-surface drop-in survives reboots" \
   'kernel\.io_uring_disabled = 2' sudo cat /etc/sysctl.d/99-hardening-kernel-surface.conf
+expect_line "the kernel-surface drop-in pins userfaultfd too" \
+  '^vm\.unprivileged_userfaultfd = 0$' sudo cat /etc/sysctl.d/99-hardening-kernel-surface.conf
 
 echo "== suid_diet: the identity tools nobody on a key-only box needs =="
 # The node ships all five setuid/setgid (passwd and login packages), so each
