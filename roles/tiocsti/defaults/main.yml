@@ -1,0 +1,6 @@
+---
+# Terminal input injection (mirrors step 56 of harden.sh in the Bash twin).
+# Screen readers and `writevt` type for the user and need TIOCSTI: turn the
+# role off for those boxes.
+tiocsti_enabled: true
+tiocsti_sysctl_dropin: /etc/sysctl.d/99-hardening-tiocsti.conf

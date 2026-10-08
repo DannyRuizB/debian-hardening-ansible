@@ -956,6 +956,16 @@ echo "-- ARP spoofing guard ---------------------------------------"
   && P "arp_filter = 1 (each interface answers only for the address that lives on it)" \
   || F "arp_filter = $(on_node sysctl -n net.ipv4.conf.all.arp_filter): one segment can farm the MACs of another's addresses" "pin net.ipv4.conf.all.arp_filter=1 (arp_spoof_guard role)"
 
+echo "-- Terminal input injection (TIOCSTI) ----------------------"
+tio=$(sctl dev.tty.legacy_tiocsti)
+if [ -z "$tio" ]; then
+  P "dev.tty.legacy_tiocsti not exposed by this kernel (< 6.2; no knob to pin)"
+elif [ "$tio" = 0 ]; then
+  P "dev.tty.legacy_tiocsti = 0 (no process without CAP_SYS_ADMIN can type into a terminal)"
+else
+  F "dev.tty.legacy_tiocsti = $tio: any process holding a terminal can inject keystrokes (su/sudo session hijack)" "run the tiocsti role"
+fi
+
 echo "-- Accounts & files -----------------------------------------"
 on_node getent group sudo | grep -qE ':.*[a-z]' \
   && P "A non-root sudo account exists ($(on_node getent group sudo | sed 's/.*://'))" \

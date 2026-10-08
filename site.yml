@@ -146,6 +146,9 @@
     # ARP spoofing guard: a sibling sysctl drop-in (drop_gratuitous_arp=1,
     # arp_filter=1) - stops the box believing a poisoned ARP. Mirrors step 55.
     - arp_spoof_guard
+    # Terminal input injection: own sysctl drop-in (dev.tty.legacy_tiocsti=0) -
+    # no unprivileged process types into a terminal. Mirrors step 56.
+    - tiocsti
     # Egress filtering: owns the ufw OUTBOUND policy (the ufw role stands
     # down on it). LAST on purpose - every role that installs a package
     # reaches its mirror before the outbound door narrows to the allowlist,
