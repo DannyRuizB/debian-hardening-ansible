@@ -213,6 +213,21 @@ jobs:
           grep -H . /proc/sys/kernel/randomize_va_space /proc/sys/kernel/perf_event_paranoid
           SH
 
+      # sysctl_hardening offenders the runner hides: it ships dmesg_restrict=1
+      # and kptr_restrict=1 (measured), so their checks passed with no
+      # hardening at all. Plant 0 for both; with perf_event_paranoid -1 just
+      # planted, log the leak: nobody reads the kernel log and the REAL
+      # address of the first kernel symbol.
+      - name: Plant readable dmesg and kernel pointers for sysctl_hardening to close
+        run: |
+          docker exec -i dh-test-node bash -s <<'SH'
+          echo 0 > /proc/sys/kernel/dmesg_restrict
+          echo 0 > /proc/sys/kernel/kptr_restrict
+          grep -H . /proc/sys/kernel/dmesg_restrict /proc/sys/kernel/kptr_restrict /proc/sys/kernel/perf_event_paranoid
+          echo "nobody reads the kernel log: $(setpriv --reuid=65534 --regid=65534 --clear-groups dmesg 2>&1 | head -1 | cut -c1-60)"
+          echo "nobody reads kernel addresses: $(setpriv --reuid=65534 --regid=65534 --clear-groups head -1 /proc/kallsyms)"
+          SH
+
       # account_hygiene offenders — the logins that hide in the account DATA,
       # all three measured to work on a stock node before the role was
       # written: an EMPTY password authenticates with a bare Enter (pam_unix

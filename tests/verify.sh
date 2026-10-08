@@ -105,6 +105,28 @@ expect_line "reverse-path filtering is on" "^1$" sudo sysctl -n net.ipv4.conf.al
 expect_line "martian packets are logged" "^1$" sudo sysctl -n net.ipv4.conf.all.log_martians
 expect_line "SYN cookies are enabled" "^1$" sudo sysctl -n net.ipv4.tcp_syncookies
 expect_line "dmesg is restricted to root" "^1$" sudo sysctl -n kernel.dmesg_restrict
+# ...and what it is for, from the admin account (no CAP_SYSLOG): the runner
+# ships dmesg_restrict=1, so the CI plants 0 - measured, at 0 nobody reads the
+# kernel log, at 1 "read kernel buffer failed: Operation not permitted".
+if on_node dmesg 2>&1 | grep -q 'Operation not permitted'; then
+  pass "the admin account cannot read the kernel log (dmesg: Operation not permitted)"
+else
+  fail "the admin account cannot read the kernel log (dmesg answered: $(on_node dmesg 2>&1 | head -1 | cut -c1-60))"
+fi
+# kptr_restrict was set by sysctl_hardening and checked by nobody. The runner
+# ships 1, so the CI plants 0 (and perf_event_paranoid -1, the exploit_mitigations plant):
+# measured, that pair hands any account the REAL kernel addresses in
+# /proc/kallsyms and /proc/modules - KASLR undone. kptr_restrict=1 zeroes
+# them for anyone without CAP_SYSLOG even if perf_event_paranoid is lowered
+# later; 2 would hide them from root too (and from root's perf), not wanted.
+expect_line "kernel pointers are hidden from unprivileged readers (kptr_restrict = 1)" "^1$" \
+  sudo sysctl -n kernel.kptr_restrict
+kaddr=$(on_node "head -1 /proc/kallsyms | cut -d' ' -f1" 2>/dev/null || true)
+if [ -n "$kaddr" ] && [ -z "${kaddr//0/}" ]; then
+  pass "the admin account sees zeroed kernel addresses in /proc/kallsyms ($kaddr)"
+else
+  fail "the admin account reads kernel addresses in /proc/kallsyms (first symbol at '${kaddr:-nothing}')"
+fi
 expect_line "setuid binaries cannot dump core" "^0$" sudo sysctl -n fs.suid_dumpable
 expect_ok "the sysctl drop-in survives reboots" test -s /etc/sysctl.d/99-hardening.conf
 
