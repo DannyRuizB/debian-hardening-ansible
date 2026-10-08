@@ -288,7 +288,9 @@ jobs:
       # into its own terminal.
       - name: Plant TIOCSTI on for the tiocsti role to close
         run: |
-          docker cp tests/tiocsti-probe.pl dh-test-node:/tmp/tiocsti-probe.pl
+          # By stdin into /root, not `docker cp` into /tmp: the node mounts a tmpfs on
+          # /tmp at boot and docker cp writes UNDER it - perl then finds no file.
+          docker exec -i dh-test-node bash -c 'cat > /root/tiocsti-probe.pl' < tests/tiocsti-probe.pl
           docker exec -i dh-test-node bash -s <<'SH'
           if [ -e /proc/sys/dev/tty/legacy_tiocsti ]; then
             echo 1 > /proc/sys/dev/tty/legacy_tiocsti
@@ -297,8 +299,9 @@ jobs:
           fi
           grep -H . /proc/sys/dev/tty/legacy_tiocsti 2>/dev/null || true
           echo "TIOCSTI open - nobody, inside a pty:"
-          script -qc "setpriv --reuid=65534 --regid=65534 --clear-groups perl /tmp/tiocsti-probe.pl" /tmp/t.out </dev/null >/dev/null 2>&1
-          grep -a TIOCSTI /tmp/t.out | tr -d '\r'
+          chmod 644 /root/tiocsti-probe.pl; cp /root/tiocsti-probe.pl /var/tmp/tiocsti-probe.pl
+          script -qc "setpriv --reuid=65534 --regid=65534 --clear-groups perl /var/tmp/tiocsti-probe.pl" /var/tmp/t.out </dev/null >/dev/null 2>&1
+          grep -a TIOCSTI /var/tmp/t.out | tr -d '\r' || { echo 'no TIOCSTI line - the probe said:'; cat /var/tmp/t.out; }
           SH
 
       # suid_diet has natural offenders: passwd and login ship chfn/chsh/gpasswd/
