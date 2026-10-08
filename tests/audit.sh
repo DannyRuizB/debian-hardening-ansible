@@ -186,6 +186,9 @@ r=$(redir_on ipv6 accept)
 [ "$(sctl kernel.dmesg_restrict)" = 1 ] \
   && P "dmesg restricted to root" \
   || W "dmesg world-readable" "set kernel.dmesg_restrict=1"
+[ "$(sctl kernel.kptr_restrict)" -ge 1 ] 2>/dev/null \
+  && P "kernel pointers hidden from unprivileged readers (kptr_restrict = $(sctl kernel.kptr_restrict))" \
+  || W "kernel pointers readable (kptr_restrict = $(sctl kernel.kptr_restrict)): with perf_event_paranoid <= 1 any account reads the real addresses in /proc/kallsyms (KASLR undone)" "set kernel.kptr_restrict=1 (sysctl_hardening role)"
 [ "$(sctl fs.suid_dumpable)" = 0 ] \
   && P "setuid programs can't dump core" \
   || W "setuid core dumps allowed" "set fs.suid_dumpable=0"
