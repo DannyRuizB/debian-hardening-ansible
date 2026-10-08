@@ -269,11 +269,19 @@ jobs:
           else
             echo "no unprivileged_userns_clone knob on this kernel (upstream build)"
           fi
+          # The runner ships userfaultfd at 0 (measured): plant the 1 a tuning guide leaves.
+          if [ -e /proc/sys/vm/unprivileged_userfaultfd ]; then
+            echo 1 > /proc/sys/vm/unprivileged_userfaultfd
+          else
+            echo "no userfaultfd on this kernel"
+          fi
           echo "io_uring open - io_uring_setup(2) hands anyone a ring:"
           perl -e '$p = "\0" x 120; $r = syscall(425, 8, $p); print "io_uring_setup -> $r", ($r < 0 ? " ($!)" : " (a ring fd)"), "\n"'
           grep -H . /proc/sys/kernel/io_uring_disabled /proc/sys/kernel/sysrq /proc/sys/dev/tty/ldisc_autoload \
-            /proc/sys/kernel/unprivileged_userns_clone 2>/dev/null || true
+            /proc/sys/kernel/unprivileged_userns_clone /proc/sys/vm/unprivileged_userfaultfd 2>/dev/null || true
           SH
+          echo "userfaultfd open - an unprivileged account (nobody) gets a kernel-fault descriptor:"
+          docker exec -i dh-test-node setpriv --reuid=65534 --regid=65534 --clear-groups perl < tests/uffd-probe.pl
 
       # suid_diet has natural offenders: passwd and login ship chfn/chsh/gpasswd/
       # newgrp setuid root and expiry setgid shadow. Nothing to plant - log the
