@@ -108,10 +108,13 @@ expect_line "dmesg is restricted to root" "^1$" sudo sysctl -n kernel.dmesg_rest
 # ...and what it is for, from the admin account (no CAP_SYSLOG): the runner
 # ships dmesg_restrict=1, so the CI plants 0 - measured, at 0 nobody reads the
 # kernel log, at 1 "read kernel buffer failed: Operation not permitted".
-if on_node dmesg 2>&1 | grep -q 'Operation not permitted'; then
+# dmesg's own stderr is folded in on the node: ssh's local stderr carries the
+# login banner, which would otherwise be all the FAIL line shows.
+dmesg_out=$(on_node 'dmesg 2>&1' 2>/dev/null || true)
+if grep -q 'Operation not permitted' <<<"$dmesg_out"; then
   pass "the admin account cannot read the kernel log (dmesg: Operation not permitted)"
 else
-  fail "the admin account cannot read the kernel log (dmesg answered: $(on_node dmesg 2>&1 | head -1 | cut -c1-60))"
+  fail "the admin account cannot read the kernel log (dmesg answered: $(head -1 <<<"$dmesg_out" | cut -c1-60))"
 fi
 # kptr_restrict was set by sysctl_hardening and checked by nobody. The runner
 # ships 1, so the CI plants 0 (and perf_event_paranoid -1, the exploit_mitigations plant):
