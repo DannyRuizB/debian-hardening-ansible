@@ -1,0 +1,5 @@
+---
+- name: Apply TIOCSTI sysctl
+  ansible.builtin.command: sysctl -q -p {{ tiocsti_sysctl_dropin }}
+  changed_when: true
+  failed_when: false

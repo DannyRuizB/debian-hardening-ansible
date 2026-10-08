@@ -1,0 +1,50 @@
+---
+# Terminal input injection - mirrors step 56 of harden.sh in the sibling Bash
+# repo. TIOCSTI pushes a byte into a terminal's INPUT queue as if it had been
+# typed, and any process holding the terminal may use it: a process left in
+# an admin's `su`/`sudo -s` session types commands the admin's shell then runs
+# - the classic session hijack, and a container escape when a runtime hands
+# out the host's tty. dev.tty.legacy_tiocsti=0 (kernels >= 6.2) refuses it to
+# anyone without CAP_SYS_ADMIN.
+# Measured on the CI runner (6.17), as nobody inside a pty: at 1 the byte is
+# INJECTED, at 0 the ioctl fails with EIO; root keeps it either way. The
+# runner and the WSL lab kernel ship 0, so this is a pin - the CI plants 1.
+# A kernel without the knob (< 6.2) has nothing to pin: the role says so and
+# writes nothing (sysctl -p of a missing key would fail the handler).
+
+- name: Check whether this kernel has dev.tty.legacy_tiocsti
+  ansible.builtin.stat:
+    path: /proc/sys/dev/tty/legacy_tiocsti
+  register: tiocsti_knob
+  when: tiocsti_enabled | bool
+
+- name: Note a kernel without the knob (nothing to pin)
+  ansible.builtin.debug:
+    msg: "dev.tty.legacy_tiocsti does not exist on this kernel (< 6.2) - nothing to pin"
+  when: tiocsti_enabled | bool and not tiocsti_knob.stat.exists
+
+- name: Refuse TIOCSTI to unprivileged processes (own sysctl drop-in)
+  ansible.builtin.copy:
+    content: |
+      # Managed by Ansible (tiocsti role). Edit the role, not this file.
+      dev.tty.legacy_tiocsti = 0
+    dest: "{{ tiocsti_sysctl_dropin }}"
+    owner: root
+    group: root
+    mode: "0644"
+  when: tiocsti_enabled | bool and tiocsti_knob.stat.exists
+  notify: Apply TIOCSTI sysctl
+
+# The drop-in can be in place while the live value was flipped back (by hand,
+# by a package): apply it whenever the kernel disagrees - the Bash twin's
+# "file and live value" check. Reads before it writes, so a second run is
+# changed=0.
+- name: Close TIOCSTI live if the kernel disagrees with the drop-in
+  ansible.builtin.shell:
+    executable: /bin/bash
+    cmd: |
+      set -eu
+      if [ "$(cat /proc/sys/dev/tty/legacy_tiocsti)" = 0 ]; then echo "OK"; else sysctl -q -w dev.tty.legacy_tiocsti=0 && echo "APPLIED"; fi
+  register: tiocsti_live
+  changed_when: "'APPLIED' in tiocsti_live.stdout"
+  when: tiocsti_enabled | bool and tiocsti_knob.stat.exists

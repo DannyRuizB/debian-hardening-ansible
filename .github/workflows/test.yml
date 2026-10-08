@@ -283,6 +283,27 @@ jobs:
           echo "userfaultfd open - an unprivileged account (nobody) gets a kernel-fault descriptor:"
           docker exec -i dh-test-node setpriv --reuid=65534 --regid=65534 --clear-groups perl < tests/uffd-probe.pl
 
+      # tiocsti offender: the runner ships legacy_tiocsti=0 (measured) - plant
+      # the 1, and log the smoking gun: nobody, inside a pty, types a byte
+      # into its own terminal.
+      - name: Plant TIOCSTI on for the tiocsti role to close
+        run: |
+          # By stdin into /root, not `docker cp` into /tmp: the node mounts a tmpfs on
+          # /tmp at boot and docker cp writes UNDER it - perl then finds no file.
+          docker exec -i dh-test-node bash -c 'cat > /root/tiocsti-probe.pl' < tests/tiocsti-probe.pl
+          docker exec -i dh-test-node bash -s <<'SH'
+          if [ -e /proc/sys/dev/tty/legacy_tiocsti ]; then
+            echo 1 > /proc/sys/dev/tty/legacy_tiocsti
+          else
+            echo "no legacy_tiocsti on this kernel (< 6.2)"
+          fi
+          grep -H . /proc/sys/dev/tty/legacy_tiocsti 2>/dev/null || true
+          echo "TIOCSTI open - nobody, inside a pty:"
+          chmod 644 /root/tiocsti-probe.pl; cp /root/tiocsti-probe.pl /var/tmp/tiocsti-probe.pl
+          script -qc "setpriv --reuid=65534 --regid=65534 --clear-groups perl /var/tmp/tiocsti-probe.pl" /var/tmp/t.out </dev/null >/dev/null 2>&1
+          grep -a TIOCSTI /var/tmp/t.out | tr -d '\r' || { echo 'no TIOCSTI line - the probe said:'; cat /var/tmp/t.out; }
+          SH
+
       # suid_diet has natural offenders: passwd and login ship chfn/chsh/gpasswd/
       # newgrp setuid root and expiry setgid shadow. Nothing to plant - log the
       # shipped modes so the flip is visible.

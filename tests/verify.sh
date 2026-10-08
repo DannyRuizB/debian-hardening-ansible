@@ -1556,12 +1556,37 @@ expect_line "drop_gratuitous_arp is 1 (unsolicited ARP replies are dropped)" '^1
 expect_line "arp_filter is 1 (an interface answers only for its own address)" '^1$' \
   sudo sysctl -n net.ipv4.conf.all.arp_filter
 
+echo "== tiocsti (step 56 in the Bash twin) =="
+# The CI plants legacy_tiocsti=1 (the runner ships 0). The knob must read 0
+# AND the admin account (no CAP_SYS_ADMIN), inside a real pty, must be refused
+# TIOCSTI with EIO. The anchor that the probe can tell: it has to reach
+# /dev/tty and get exactly "refused: Input/output error" - no tty, or any
+# other answer, fails (and the plant step logged it INJECTING at 1).
+tio=$(on_node "sudo sysctl -n dev.tty.legacy_tiocsti 2>/dev/null" 2>/dev/null || true)
+if [ -z "$tio" ]; then
+  pass "dev.tty.legacy_tiocsti not exposed by this kernel (< 6.2) - nothing to pin"
+else
+  if [ "$tio" = 0 ]; then
+    pass "TIOCSTI is refused to unprivileged processes (dev.tty.legacy_tiocsti = 0)"
+  else
+    fail "dev.tty.legacy_tiocsti should be 0, got $tio"
+  fi
+  on_node "cat > /tmp/tiocsti-probe.pl" < tiocsti-probe.pl 2>/dev/null || true
+  tline=$(on_node "script -qc 'perl /tmp/tiocsti-probe.pl' /tmp/tiocsti-probe.out </dev/null >/dev/null 2>&1; grep -a 'TIOCSTI' /tmp/tiocsti-probe.out | tr -d '\\r' | sed 's/^x//'" 2>/dev/null || true)
+  if printf '%s' "$tline" | grep -Eq '^uid [1-9][0-9]*: TIOCSTI refused: Input/output error$'; then
+    pass "the admin account cannot type into its own terminal (TIOCSTI -> EIO)"
+  else
+    fail "the admin account is refused TIOCSTI inside a pty (probe said: ${tline:-nothing})"
+  fi
+fi
+
 # LAST on purpose: banning the client cuts our own SSH access to the node.
 # Lift the shield installed at the top — from here on we WANT to be bannable.
 # (It used to sit before the pw_history section; every section appended
 # since ran unshielded and passed by luck - ssh_hostkeys' deliberate ECDSA
 # negotiation failure is what finally tripped a ban mid-run in the Bash twin.)
 docker exec dh-test-node fail2ban-client set sshd delignoreip 172.17.0.1 >/dev/null 2>&1 || true
+
 echo "== Fail2Ban really bans =="
 # Attack with a mix of NON-existent usernames (root/admin/oracle/...), the way a
 # real bot does. These log as 'Invalid user' from the sshd-session process on
