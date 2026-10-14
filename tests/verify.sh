@@ -5,7 +5,7 @@
 # attacker (or a locked-out admin) would experience it.
 # =============================================================================
 set -euo pipefail
-cd "$(dirname "$0")"
+cd "$(dirname "$0")" || exit 1
 
 PORT=2222
 KEY=".ssh_ci/id_ci"
@@ -1619,7 +1619,7 @@ echo "== Fail2Ban really bans =="
 # exercises the jail's journalmatch fix. Fire waves until the ban lands (fail2ban
 # can miss the first attempts right after a restart).
 banned=no
-for wave in 1 2 3; do
+for _wave in 1 2 3; do
   for u in root admin test oracle git postgres ubuntu daniel; do
     ssh "${OPTS[@]}" -o ConnectTimeout=3 -i "$KEY" "$u@127.0.0.1" true >/dev/null 2>&1 || true
   done

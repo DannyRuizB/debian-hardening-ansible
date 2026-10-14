@@ -17,7 +17,7 @@
 # throwaway container on 127.0.0.1, attacked from your own machine.
 # =============================================================================
 set -uo pipefail
-cd "$(dirname "$0")"
+cd "$(dirname "$0")" || exit 1
 
 NODE="dh-test-node"
 PORT=2222
@@ -92,7 +92,7 @@ docker exec "$NODE" systemctl restart fail2ban 2>/dev/null; sleep 3
 # Fire waves of failed logins until the ban lands (fail2ban can miss the very
 # first attempts right after a restart while it catches up with the journal).
 banned=0
-for wave in 1 2 3; do
+for _wave in 1 2 3; do
   for u in root admin test opsadmin oracle git postgres ubuntu; do
     ssh "${OPTS[@]}" -o ConnectTimeout=3 -i "$EVIL" "$u@127.0.0.1" true >/dev/null 2>&1
   done

@@ -12,7 +12,7 @@
 # FAIL = a core security control is missing (serious).
 # =============================================================================
 set -uo pipefail
-cd "$(dirname "$0")"
+cd "$(dirname "$0")" || exit 1
 NODE=dh-test-node
 
 pass=0; warn=0; fail=0
@@ -342,6 +342,8 @@ unknown_suid=""
 # (bash -c: docker exec takes argv, not a command line — passed as one
 # string, the whole pipeline is looked up as a binary name and fails)
 for f in $(on_node bash -c 'find / -xdev -type f -perm -4000 -user root 2>/dev/null | sort'); do
+  # Membership test: the constant list is the word, " $f " the pattern.
+  # shellcheck disable=SC2194
   case " /usr/bin/su /usr/bin/sudo /usr/bin/passwd /usr/bin/mount /usr/bin/umount /usr/lib/openssh/ssh-keysign /usr/sbin/exim4 /usr/lib/dbus-1.0/dbus-daemon-launch-helper " in
     *" $f "*) ;;
     *) unknown_suid="$unknown_suid $f";;

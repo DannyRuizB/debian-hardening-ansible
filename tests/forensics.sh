@@ -23,7 +23,7 @@
 #   ufw status               -> firewall rules, incl. Fail2Ban's REJECTs
 # =============================================================================
 set -uo pipefail
-cd "$(dirname "$0")"
+cd "$(dirname "$0")" || exit 1
 NODE="dh-test-node"
 PORT=2222
 GOOD=".ssh_ci/id_ci"
@@ -51,7 +51,7 @@ ssh "${OPTS[@]}" -i "$GOOD" opsadmin@127.0.0.1 true >/dev/null 2>&1
 
 # The attack: waves of failed logins (non-existent users + real accounts with
 # a wrong key) until Fail2Ban bans the source.
-for wave in 1 2 3; do
+for _wave in 1 2 3; do
   for u in root admin test opsadmin oracle git postgres ubuntu; do
     ssh "${OPTS[@]}" -o ConnectTimeout=3 -i "$EVIL" "$u@127.0.0.1" true >/dev/null 2>&1
   done

@@ -15,7 +15,7 @@
 # Fail2Ban — a fresh VPS before anyone hardened it. All local, on 127.0.0.1.
 # =============================================================================
 set -uo pipefail
-cd "$(dirname "$0")"
+cd "$(dirname "$0")" || exit 1
 
 VULN=dh-vuln-node
 VPORT=2223          # stock node
@@ -73,8 +73,8 @@ offered() {
 # "denied" means the server still answers (no throttling); a transport cut
 # (reset/timeout) means we've been banned. Echoes BANNED or UNLIMITED.
 bruteforce() {
-  local port="$1" wave u err
-  for wave in 1 2 3 4; do
+  local port="$1" _wave u err
+  for _wave in 1 2 3 4; do
     for u in root admin test oracle git postgres ubuntu daniel; do
       ssh -p "$port" "${COM[@]}" -o ConnectTimeout=3 -i "$EVIL" "$u@127.0.0.1" true >/dev/null 2>&1
     done
