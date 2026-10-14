@@ -103,7 +103,7 @@ inventory never ran) and graded an MTA by being installed instead of where
 it listens — the Bash twin's node, measured, scored 164 with 3 WARN:
 
 ```
- Score: 182 PASS, 0 WARN, 0 FAIL  ->  100% compliant
+ Score: 183 PASS, 0 WARN, 0 FAIL  ->  100% compliant
 ```
 
 ## Honesty
