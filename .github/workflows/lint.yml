@@ -32,3 +32,11 @@ jobs:
 
       - name: ansible-lint
         run: ansible-lint
+
+      # The e2e harness (verify / audit / attacks / redteam ...) is the bash
+      # that decides whether the roles PASS - a bug there is a check that
+      # silently stops checking. Warnings and errors only: SC2015
+      # (`a && b || c`) and SC2016 are the suite's deliberate idiom. Same
+      # gate as the Bash sibling's.
+      - name: ShellCheck (test harness)
+        run: shellcheck -S warning tests/*.sh

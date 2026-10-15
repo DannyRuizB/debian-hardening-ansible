@@ -12,7 +12,7 @@
 # All local: recon hits the node's Docker-network IP, logins hit 127.0.0.1:2222.
 # =============================================================================
 set -uo pipefail
-cd "$(dirname "$0")"
+cd "$(dirname "$0")" || exit 1
 
 NODE=dh-test-node
 PORT=2222

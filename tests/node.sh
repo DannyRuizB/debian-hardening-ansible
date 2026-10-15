@@ -10,7 +10,7 @@
 # Everything is local and disposable; "down" leaves nothing running.
 # =============================================================================
 set -euo pipefail
-cd "$(dirname "$0")"
+cd "$(dirname "$0")" || exit 1
 
 IMAGE="dh-test-node"
 NAME="dh-test-node"
@@ -42,7 +42,7 @@ case "${1:-}" in
     ;;
 
   wait)
-    for i in $(seq 1 30); do
+    for _ in $(seq 1 30); do
       if ssh -i "$KEY" -p "$PORT" \
           -o StrictHostKeyChecking=accept-new \
           -o UserKnownHostsFile=.ssh_ci/known_hosts \
