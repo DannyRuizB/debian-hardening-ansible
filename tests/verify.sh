@@ -1014,7 +1014,9 @@ esac
 kex_line=$(printf '%s\n' "$crypto_conf" | grep '^kexalgorithms ')
 case "$kex_line" in
   *ecdh-sha2-nistp*) fail "effective kex has no NIST P-curves" ;;
-  *mlkem768*)        pass "effective kex has no NIST P-curves" ;;
+  # The positive anchor is a PQ hybrid: ML-KEM where OpenSSH has it, sntrup761
+  # on Debian 12 (OpenSSH 9.2 has no ML-KEM - measured).
+  *mlkem768*|*sntrup761*) pass "effective kex has no NIST P-curves" ;;
   *)                 fail "effective kex has no NIST P-curves" ;;
 esac
 case "$crypto_conf" in

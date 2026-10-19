@@ -213,8 +213,15 @@ ssh user@host 'sudo fail2ban-client status sshd'
 - **Control node:** Ansible (`pipx install --include-deps ansible`). Uses the
   `community.general` and `ansible.posix` collections (bundled with the full
   `ansible` package).
-- **Managed node:** Debian 12 (Bookworm) or 13 (Trixie), reachable over SSH with
-  a sudo-capable user.
+- **Managed node:** Debian 13 (Trixie) — the one the e2e hardens on every
+  push — reachable over SSH with a sudo-capable user. **Debian 12 (Bookworm)
+  is not claimed**: this README said "12 or 13" until a CI run on 19/10/2026
+  hardened a `debian:12` node and the play **stopped at the first pass**. The
+  `ssh_crypto` role's ML-KEM key exchange does not exist in Debian 12's
+  OpenSSH 9.2 (fixed: the role now pins only what `ssh -Q` reports); the
+  `tmp_confinement` mount still aborts there — Debian 12's `/tmp` is on disk,
+  so the new tmpfs covers the mount module's own payload while it runs.
+  `DEBIAN=12 ./tests/node.sh up` builds that node to reproduce it.
 
 > ⚠️ Run with `--check --diff` first, and on a host you can reach by console
 > (e.g. the Proxmox/hypervisor shell) the first time, in case of a custom SSH

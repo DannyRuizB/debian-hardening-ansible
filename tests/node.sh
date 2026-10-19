@@ -26,7 +26,7 @@ case "${1:-}" in
       echo "CI key created at tests/$KEY"
     fi
 
-    docker build --build-arg PUBKEY="$(cat "$KEY.pub")" -t "$IMAGE" .
+    docker build --build-arg DEBIAN="${DEBIAN:-13}" --build-arg PUBKEY="$(cat "$KEY.pub")" -t "$IMAGE" .
 
     docker rm -f "$NAME" >/dev/null 2>&1 || true
     # Privileged + host cgroups: systemd inside the container needs to manage
