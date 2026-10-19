@@ -1,7 +1,9 @@
 # Disposable "fresh Debian server" for the e2e test: systemd as PID 1 (so
 # ufw, fail2ban and unattended-upgrades run as real services) plus sshd.
 # Root logs in with the CI key only — like a fresh VPS provisioned with a key.
-FROM debian:13
+# The README promises Debian 12 and 13; the e2e builds both (DEBIAN=12|13).
+ARG DEBIAN=13
+FROM debian:${DEBIAN}
 
 ENV container=docker
 
