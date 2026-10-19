@@ -12,13 +12,42 @@
 # someone left in the main file (the CI plants exactly that line).
 # 'validate' runs sshd -t on the rendered file BEFORE it replaces the live
 # one: a broken config never goes live.
+#
+# Only what THIS OpenSSH knows goes in (`ssh -Q`: the client ships with the
+# server, same build). One unknown name and sshd -t refuses the whole file -
+# measured on Debian 12, whose OpenSSH 9.2 has no ML-KEM hybrid: validation
+# failed and took the whole play down with it. Read-only, so it runs in
+# --check too.
+- name: Ask this OpenSSH which ciphers, MACs and key exchanges it knows
+  ansible.builtin.command: "ssh -Q {{ item }}"
+  loop: [cipher, mac, kex]
+  register: ssh_crypto_known
+  changed_when: false
+  check_mode: false
+
+- name: Keep only the known algorithms, in the role's order
+  ansible.builtin.set_fact:
+    ssh_crypto_effective:
+      ciphers: "{{ ssh_crypto_ciphers | select('in', ssh_crypto_known.results[0].stdout_lines) | list }}"
+      macs: "{{ ssh_crypto_macs | select('in', ssh_crypto_known.results[1].stdout_lines) | list }}"
+      kex: "{{ ssh_crypto_kex | select('in', ssh_crypto_known.results[2].stdout_lines) | list }}"
+
+- name: Refuse a list this OpenSSH knows nothing of (sshd would have no choice)
+  ansible.builtin.assert:
+    that:
+      - ssh_crypto_effective.ciphers | length > 0
+      - ssh_crypto_effective.macs | length > 0
+      - ssh_crypto_effective.kex | length > 0
+    fail_msg: "this OpenSSH knows none of the pinned ciphers, MACs or key exchanges: {{ ssh_crypto_effective | to_json }}"
+    quiet: true
+
 - name: Pin the SSH crypto policy (ciphers, MACs, key exchange)
   ansible.builtin.copy:
     content: |
       # Managed by Ansible (ssh_crypto role). Edit the role, not this file.
-      Ciphers {{ ssh_crypto_ciphers | join(',') }}
-      MACs {{ ssh_crypto_macs | join(',') }}
-      KexAlgorithms {{ ssh_crypto_kex | join(',') }}
+      Ciphers {{ ssh_crypto_effective.ciphers | join(',') }}
+      MACs {{ ssh_crypto_effective.macs | join(',') }}
+      KexAlgorithms {{ ssh_crypto_effective.kex | join(',') }}
     dest: /etc/ssh/sshd_config.d/95-hardening-crypto.conf
     owner: root
     group: root
