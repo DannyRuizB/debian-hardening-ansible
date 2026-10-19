@@ -439,6 +439,23 @@ jobs:
                exit 1;;
           esac
 
+      # sysctl_hardening keys nobody checked until now: the runner, like the
+      # kernel, ships icmp_echo_ignore_broadcasts=1 and
+      # icmp_ignore_bogus_error_responses=1. Plant 0 for both (per network
+      # namespace: only the node's), and the probe verify runs must see the
+      # node ANSWER a ping to the broadcast address here - or its IGNORES
+      # after the play would prove nothing.
+      - name: Plant broadcast-ping answers for sysctl_hardening to close
+        run: |
+          docker exec dh-test-node sysctl -qw net.ipv4.icmp_echo_ignore_broadcasts=0 net.ipv4.icmp_ignore_bogus_error_responses=0
+          res=$(./tests/bcast-probe.sh dh-test-node)
+          echo "before hardening: $res"
+          case "$res" in
+            RESULT=ANSWERS*) ;;
+            *) echo "::error::the node does not answer a broadcast ping even at icmp_echo_ignore_broadcasts=0 - its IGNORES after the play would prove nothing"
+               exit 1;;
+          esac
+
       - name: "First pass: harden the node (connecting as root)"
         run: >
           ansible-playbook -i tests/inventory_first_run.ini site.yml

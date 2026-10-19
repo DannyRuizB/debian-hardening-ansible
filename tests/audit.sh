@@ -183,6 +183,12 @@ r=$(redir_on ipv6 accept)
 [ "$(sctl net.ipv4.tcp_syncookies)" = 1 ] \
   && P "SYN cookies enabled" \
   || W "SYN cookies disabled" "set net.ipv4.tcp_syncookies=1"
+[ "$(sctl net.ipv4.icmp_echo_ignore_broadcasts)" = 1 ] \
+  && P "Broadcast pings ignored (no smurf amplifier)" \
+  || W "Broadcast pings answered: every reply can be aimed at a forged source (smurf amplifier)" "set net.ipv4.icmp_echo_ignore_broadcasts=1"
+[ "$(sctl net.ipv4.icmp_ignore_bogus_error_responses)" = 1 ] \
+  && P "Bogus ICMP error responses ignored" \
+  || W "Bogus ICMP error responses logged" "set net.ipv4.icmp_ignore_bogus_error_responses=1"
 [ "$(sctl kernel.dmesg_restrict)" = 1 ] \
   && P "dmesg restricted to root" \
   || W "dmesg world-readable" "set kernel.dmesg_restrict=1"

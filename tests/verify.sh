@@ -130,6 +130,22 @@ if [ -n "$kaddr" ] && [ -z "${kaddr//0/}" ]; then
 else
   fail "the admin account reads kernel addresses in /proc/kallsyms (first symbol at '${kaddr:-nothing}')"
 fi
+# Two keys set by sysctl_hardening and checked by nobody. A box that answers
+# a ping to the broadcast address is a smurf amplifier; the CI plants 0 for
+# both (the runner, like the kernel, ships 1). Two layers set them here: the
+# role's drop-in AND UFW's own /etc/ufw/sysctl.conf, re-applied on every
+# enable/reload (measured on debian:13) - the Bash twin's scenarios 49/50
+# take one layer away at a time; this proves the hardened box.
+expect_line "broadcast pings are ignored (icmp_echo_ignore_broadcasts = 1)" "^1$" \
+  sudo sysctl -n net.ipv4.icmp_echo_ignore_broadcasts
+expect_line "bogus ICMP error responses are ignored (icmp_ignore_bogus_error_responses = 1)" "^1$" \
+  sudo sysctl -n net.ipv4.icmp_ignore_bogus_error_responses
+bc=$(./bcast-probe.sh dh-test-node 2>/dev/null || true)
+if grep -q '^RESULT=IGNORES ' <<<"$bc"; then
+  pass "a neighbour's pings to the broadcast address reach the node and get no reply ($bc)"
+else
+  fail "the node ignores pings to the broadcast address ($bc)"
+fi
 expect_line "setuid binaries cannot dump core" "^0$" sudo sysctl -n fs.suid_dumpable
 expect_ok "the sysctl drop-in survives reboots" test -s /etc/sysctl.d/99-hardening.conf
 
