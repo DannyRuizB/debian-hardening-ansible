@@ -1,7 +1,8 @@
 # Disposable "fresh Debian server" for the e2e test: systemd as PID 1 (so
 # ufw, fail2ban and unattended-upgrades run as real services) plus sshd.
 # Root logs in with the CI key only — like a fresh VPS provisioned with a key.
-# The README promises Debian 12 and 13; the e2e builds both (DEBIAN=12|13).
+# Debian 13 is what the e2e drills; DEBIAN=12 builds the node the README
+# names as not claimed yet (see Requirements), to reproduce its gaps.
 ARG DEBIAN=13
 FROM debian:${DEBIAN}
 
