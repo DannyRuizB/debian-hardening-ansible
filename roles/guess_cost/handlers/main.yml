@@ -1,0 +1,7 @@
+---
+- name: Absorb the pam_unix rounds into pam-auth-update
+  ansible.builtin.command:
+    cmd: pam-auth-update --package
+  environment:
+    DEBIAN_FRONTEND: noninteractive
+  changed_when: false

@@ -23,7 +23,18 @@ F() { printf "  \033[31mFAIL\033[0m  %s\n         -> %s\n" "$1" "$2"; fail=$((fa
 # Cache the effective SSH config once; val <key> returns the effective value.
 sshd_conf=$(docker exec "$NODE" sshd -T 2>/dev/null)
 val() { echo "$sshd_conf" | awk -v k="$1" 'tolower($1)==k{print $2; exit}'; }
-on_node() { docker exec "$NODE" "$@" 2>/dev/null; }
+# `on_node cmd | grep -q x` under pipefail: grep -q hangs up on its first
+# match, and a writer with more to send dies of SIGPIPE (141) - the pipeline
+# then "fails" although the line was there. `apt-config dump | grep -qF` lost
+# that race 53 times in 200 on Debian 12 and 0 on 13 (measured; the writer
+# 141, grep 0). grep -q only hangs up after it has decided, so a 141 here
+# hands the verdict to the reader: one fix for every pipeline below.
+on_node() {
+  docker exec "$NODE" "$@" 2>/dev/null
+  local rc=$?
+  [ "$rc" -eq 141 ] && return 0
+  return "$rc"
+}
 # Effective kernel value for a sysctl key (empty if the key doesn't exist).
 sctl() { docker exec "$NODE" sysctl -n "$1" 2>/dev/null; }
 
@@ -833,11 +844,15 @@ ycf=$(ld YESCRYPT_COST_FACTOR)
 [ "$ycf" = "11" ] \
   && P "yescrypt cost factor at maximum (a guess against a stolen hash costs ~1 s)" \
   || W "yescrypt cost factor is ${ycf:-unset} (stock 5: milliseconds per guess)" "set YESCRYPT_COST_FACTOR 11 in login.defs (guess_cost role)"
-fd=$(ld FAIL_DELAY)
+# The delay pam_faildelay applies: its own delay= (microseconds) when the line
+# carries one, login.defs' FAIL_DELAY otherwise (Debian 12's shadow rejects
+# that key, so there the line is the only place it can live).
+pd=$(on_node grep -v '^#' /etc/pam.d/common-auth | grep -oE 'pam_faildelay\.so.*delay=[0-9]+' | grep -oE '[0-9]+$')
+if [ -n "$pd" ]; then fd=$((pd / 1000000)); else fd=$(ld FAIL_DELAY); fi
 if [ -n "$fd" ] && [ "$fd" -ge 4 ] 2>/dev/null; then
   P "failed logins wait ${fd} s before returning (online guessing throttled)"
 else
-  W "FAIL_DELAY is ${fd:-unset}" "set FAIL_DELAY 5 in login.defs (guess_cost role)"
+  W "the fail delay is ${fd:-unset}" "set FAIL_DELAY 5 (guess_cost role)"
 fi
 on_node grep -q pam_faildelay /etc/pam.d/common-auth \
   && P "pam_faildelay is wired into the auth stack" \

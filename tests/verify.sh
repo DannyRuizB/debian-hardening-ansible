@@ -153,7 +153,7 @@ echo "== Account policies =="
 expect_line "password max age is 365 days" "^PASS_MAX_DAYS[[:space:]]+365$" grep -E "^PASS_MAX_DAYS" /etc/login.defs
 expect_line "password min age is 1 day" "^PASS_MIN_DAYS[[:space:]]+1$" grep -E "^PASS_MIN_DAYS" /etc/login.defs
 expect_line "password expiry warning is 7 days" "^PASS_WARN_AGE[[:space:]]+7$" grep -E "^PASS_WARN_AGE" /etc/login.defs
-expect_line "new accounts get a 30-day inactivity lock" "^INACTIVE=30$" grep "^INACTIVE=" /etc/default/useradd
+expect_line "new accounts get a 30-day inactivity lock" "^INACTIVE=30$" sudo grep "^INACTIVE=" /etc/default/useradd
 # Functional, not just the config files: an account created NOW must inherit
 # all four values in its shadow entry (min:max:warn:inactive).
 on_node sudo useradd probe-aging 2>/dev/null || true
@@ -484,22 +484,27 @@ expect_line "the admin user is a member of ssh-users" '(^| )ssh-users( |$)' \
   id -nG opsadmin
 # Behavioral: a user with a VALID key but NOT in ssh-users must be refused by
 # sshd before auth. We own both ends: make the probe on the node, hand it the
-# CI key, and try to log in as it. Then add it to ssh-users, reload, and prove
-# it gets in with the SAME key — so the gate is group membership, not the
-# credential. Runs inside the fail2ban shield (refusals would feed the jail).
+# CI key, and try to log in as it. Then add it to ssh-users and prove it gets
+# in with the SAME key — so the gate is group membership, not the credential.
+# Runs inside the fail2ban shield (refusals would feed the jail). No sshd
+# reload: sshd reads the groups on every connection (measured 3/3: in, out
+# and in again with no reload), and a reload re-execs the listener -
+# `systemctl reload ssh` returns before it listens again, so the next
+# connection found no listener 19/20 times on Debian 12 and 10/20 on 13
+# (measured inside the node).
 on_node "sudo userdel -r sshprobe 2>/dev/null; sudo useradd -m -s /bin/bash sshprobe && sudo install -d -m 700 -o sshprobe -g sshprobe /home/sshprobe/.ssh && sudo cp /home/opsadmin/.ssh/authorized_keys /home/sshprobe/.ssh/authorized_keys && sudo chown sshprobe:sshprobe /home/sshprobe/.ssh/authorized_keys" >/dev/null 2>&1 || true
 if ssh "${OPTS[@]}" -i "$KEY" sshprobe@127.0.0.1 true >/dev/null 2>&1; then
   fail "a keyed user outside ssh-users is refused by AllowGroups"
 else
   pass "a keyed user outside ssh-users is refused by AllowGroups"
 fi
-on_node "sudo usermod -aG ssh-users sshprobe && sudo systemctl reload ssh" >/dev/null 2>&1 || true
+on_node "sudo usermod -aG ssh-users sshprobe" >/dev/null 2>&1 || true
 if ssh "${OPTS[@]}" -i "$KEY" sshprobe@127.0.0.1 true >/dev/null 2>&1; then
   pass "adding the user to ssh-users lets the same key in"
 else
   fail "adding the user to ssh-users lets the same key in"
 fi
-on_node "sudo userdel -r sshprobe 2>/dev/null; sudo systemctl reload ssh" >/dev/null 2>&1 || true
+on_node "sudo userdel -r sshprobe" >/dev/null 2>&1 || true
 
 echo "== Service sandboxing (systemd) =="
 # Ask systemd for the EFFECTIVE properties of the running fail2ban unit — the
@@ -827,18 +832,40 @@ expect_ok "root still sees the whole process table" \
 echo "== Guess cost (yescrypt cost factor + fail delay) =="
 expect_line "login.defs pins YESCRYPT_COST_FACTOR 11" '^YESCRYPT_COST_FACTOR[[:space:]]+11$' \
   grep -E '^YESCRYPT_COST_FACTOR' /etc/login.defs
-expect_line "login.defs pins FAIL_DELAY 5" '^FAIL_DELAY[[:space:]]+5$' \
-  grep -E '^FAIL_DELAY' /etc/login.defs
+# Debian 12's shadow (4.13) rejects FAIL_DELAY - with the key in login.defs
+# every useradd, usermod and passwd printed "unknown item" - so there the
+# role leaves it out and the delay lives on pam_faildelay's own line. Ask
+# shadow which world this is, the way the role does: `useradd -D -K
+# FAIL_DELAY=5` only prints the defaults (rc 0 on 13; rc 3 and "unknown
+# item" on 12; nothing written - measured).
+if ! on_node sudo useradd -D -K FAIL_DELAY=5 >/dev/null 2>&1; then
+  if on_node grep -qE '^FAIL_DELAY' /etc/login.defs; then
+    fail "login.defs leaves FAIL_DELAY out (this shadow rejects the key)"
+  else
+    pass "login.defs leaves FAIL_DELAY out (this shadow rejects the key)"
+  fi
+else
+  expect_line "login.defs pins FAIL_DELAY 5" '^FAIL_DELAY[[:space:]]+5$' \
+    grep -E '^FAIL_DELAY' /etc/login.defs
+fi
+expect_ok "shadow's tools read login.defs without complaint (useradd -D)" \
+  "! sudo useradd -D 2>&1 >/dev/null | grep -q 'unknown item'"
+expect_line "pam_faildelay carries its own 5 s delay (delay=5000000)" 'pam_faildelay\.so.*[[:space:]]delay=5000000([[:space:]]|$)' \
+  grep -v '^#' /etc/pam.d/common-auth
 # The wiring must sit on the FAILURE path: after pam_unix but before the
 # stack-enders — faillock's authfail dies and the closing pam_deny is
 # requisite, so a delay line below either of those never runs (verified on a
 # stock node: appended after the deny, the delay simply doesn't happen).
 expect_ok "pam_faildelay sits on the failure path (above authfail/deny)" \
   "grep -v '^#' /etc/pam.d/common-auth | awk '/pam_faildelay/{f=NR} /authfail|pam_deny/{if (!d) d=NR} END{exit !(f && d && f<d)}'"
+# Debian 12's pam_unix ignores login.defs' cost factor (measured: passwd,
+# chpasswd and newusers minted $y$j9T$ with the pin there), so the cost is
+# also on pam_unix's own line.
+expect_line "pam_unix mints yescrypt at cost 11 (rounds=11 on its line)" 'pam_unix\.so.*[[:space:]]yescrypt([[:space:]].*)?[[:space:]]rounds=11([[:space:]]|$)' \
+  grep -v '^#' /etc/pam.d/common-password
 # Behavioral: a password minted NOW must carry yescrypt's maximum cost —
 # $y$jFT$ encodes factor 11 where the stock default is $y$j9T$ (factor 5).
-# chpasswd, newusers and a PAM password change all read the pin from
-# login.defs (verified empirically on the node before writing the role).
+# chpasswd goes through PAM here, the path that missed the pin on Debian 12.
 on_node "sudo userdel -r cost-probe 2>/dev/null; sudo useradd cost-probe && echo 'cost-probe:Guess#Cost!v8Rt' | sudo chpasswd" >/dev/null 2>&1 || true
 expect_line "a hash minted now carries maximum cost (\$y\$jFT\$...)" '^\$y\$jFT\$' \
   "sudo getent shadow cost-probe | cut -d: -f2"
@@ -1404,10 +1431,13 @@ expect_line "the admin session's soft process limit is 4096 (effective)" '^4096$
   bash -c "'ulimit -Su'"
 expect_line "the session cannot raise its own cap (ulimit -u 8192 -> Operation not permitted)" 'Operation not permitted' \
   bash -c "'ulimit -u 8192 2>&1 || true'"
-# Measured against the obvious escape: rlimits are inherited, so a sudo shell
-# opened from the capped session is capped too (an explicit root line does not
-# lift it). The cap follows the session, sudo included; root's own logins stay
-# unlimited.
+# The obvious escape, sudo: sudo lifts nproc while it switches users and
+# restores the caller's value only if pam_limits "appears" not to have touched
+# it - Debian 13 restored 4096, Debian 12 handed the shell UNLIMITED
+# (measured). The role says it outright with Defaults rlimit_nproc=user; the
+# cap follows the session, sudo included; root's own logins stay unlimited.
+expect_line "sudo is told to keep the caller's cap (Defaults rlimit_nproc=user)" '^Defaults rlimit_nproc=user$' \
+  sudo cat /etc/sudoers.d/99-hardening-nproc
 expect_line "sudo from the capped session inherits the cap (ulimit -Hu = 4096, no escape through sudo)" '^4096$' \
   sudo bash -c "'ulimit -Hu'"
 expect_ok "pam_limits sits in the sshd PAM stack (the cap actually applies at the door)" \
