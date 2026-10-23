@@ -14,7 +14,9 @@ permissions:
 jobs:
   harden-and-verify:
     name: Harden a disposable Debian ${{ matrix.debian }} node + verify
-    # Measuring Debian 12 (Bookworm) next to 13 (tests/Dockerfile ARG DEBIAN).
+    # Debian 13 (Trixie) and 12 (Bookworm) both run every step below, built
+    # from the same Dockerfile (ARG DEBIAN): the README claims what this
+    # drills, nothing else.
     strategy:
       fail-fast: false
       matrix:
