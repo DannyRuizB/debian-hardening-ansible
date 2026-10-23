@@ -47,6 +47,14 @@
           + (tmp_confinement_flags | reject('in', tmp_confinement_existing_list) | list))
          | join(',') }}
 
+# The module itself runs out of /tmp: AnsiballZ unpacks its payload zip into
+# a tempfile dir there and imports from it lazily. Where /tmp is a plain
+# directory (Debian 12), the fresh tmpfs shadows that zip mid-run — measured:
+# the mount and the fstab line both land, then exit_json's import hits
+# FileNotFoundError and the play aborts with the job half done. TMPDIR moves
+# the payload to /var/tmp, which the var_tmp_confinement role binds onto
+# itself (same directory, nothing hidden). Debian 13's /tmp is already a
+# tmpfs and only gets remounted, so it never saw this.
 - name: Pin /tmp in fstab and mount it with the hardened options
   ansible.posix.mount:
     path: /tmp
@@ -54,6 +62,8 @@
     fstype: "{{ (tmp_confinement_existing_src.stdout.split(' ') | last) if tmp_confinement_existing_src.stdout else 'tmpfs' }}"
     opts: "{{ tmp_confinement_opts }}"
     state: mounted
+  environment:
+    TMPDIR: /var/tmp
 
 # The mount module keys its remount off the fstab line — if someone later
 # remounted /tmp with exec but fstab never drifted, it would look "ok".

@@ -14,30 +14,105 @@
 # minute. A correct password pays neither price — libpam only applies the
 # delay when the authentication ultimately fails.
 
-# Both knobs live in login.defs — chpasswd, newusers AND pam_unix read the
-# cost factor from there (verified empirically on the node: a PAM password
-# change also mints a $y$jFT$ hash), and pam_faildelay without inline
-# arguments falls back to FAIL_DELAY. One file, one source of truth.
-- name: Pin the guess-cost knobs in login.defs
+# login.defs carries both knobs for the tools that read it: chpasswd -c,
+# newusers and (on Debian 13) pam_unix take the cost factor from there, and
+# Debian 13's login (util-linux) its FAIL_DELAY. But Debian 12's shadow
+# (4.13) does not know FAIL_DELAY: with the key in login.defs EVERY useradd,
+# usermod, passwd and chpasswd printed "configuration error - unknown item
+# 'FAIL_DELAY' (notify administrator)" (measured), and nothing there reads
+# it but pam_faildelay - which gets its own delay= below. So ask shadow
+# first: `useradd -D -K FAIL_DELAY=5` only prints the defaults with the key
+# overridden - rc 0 on 13, rc 3 and "unknown item" on 12, nothing written on
+# either (measured). Read-only, and the pin below needs the answer even in
+# --check, hence check_mode: false.
+- name: Ask shadow whether it knows FAIL_DELAY (useradd -D -K only prints)
+  ansible.builtin.command:
+    cmd: useradd -D -K FAIL_DELAY={{ guess_cost_fail_delay }}
+  register: guess_cost_shadow_fail_delay
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Pin the yescrypt cost factor in login.defs
   ansible.builtin.lineinfile:
     path: /etc/login.defs
-    regexp: '^#?\s*{{ item.key }}\b'
-    line: "{{ item.key }}\t{{ item.value }}"
-  loop:
-    - { key: YESCRYPT_COST_FACTOR, value: "{{ guess_cost_yescrypt_factor }}" }
-    - { key: FAIL_DELAY, value: "{{ guess_cost_fail_delay }}" }
-  loop_control:
-    label: "{{ item.key }}"
+    regexp: '^#?\s*YESCRYPT_COST_FACTOR\b'
+    line: "YESCRYPT_COST_FACTOR\t{{ guess_cost_yescrypt_factor }}"
+
+- name: Pin FAIL_DELAY in login.defs (this shadow knows the key)
+  ansible.builtin.lineinfile:
+    path: /etc/login.defs
+    regexp: '^#?\s*FAIL_DELAY\b'
+    line: "FAIL_DELAY\t{{ guess_cost_fail_delay }}"
+  when: guess_cost_shadow_fail_delay.rc == 0
+
+- name: Keep FAIL_DELAY out of login.defs (this shadow rejects the key)
+  ansible.builtin.lineinfile:
+    path: /etc/login.defs
+    regexp: '^FAIL_DELAY\b'
+    state: absent
+  when: guess_cost_shadow_fail_delay.rc != 0
+
+# The cost factor in login.defs is not enough for PAM everywhere: Debian 12's
+# pam_unix (PAM 1.5.2) ignores YESCRYPT_COST_FACTOR - measured, passwd,
+# chpasswd and newusers all minted the stock $y$j9T$ (cost 5) with the pin in
+# place. rounds= on the pam_unix line is the cost every PAM password change
+# uses (12: all three then mint $y$jFT$; 13: unchanged, already $y$jFT$).
+# Only on a yescrypt line - for sha512 the same rounds=11 would mean 1000
+# rounds, below its default 5000. Edited in place, like pam_nullok's cut:
+# measured on Debian 12, pam-auth-update records an added option as a local
+# modification and re-applies it (the line kept rounds=11 through
+# `pam-auth-update --force` and a libpam-runtime reinstall).
+- name: Drop a different rounds= from the yescrypt pam_unix line
+  ansible.builtin.replace:
+    path: "{{ guess_cost_pam_password }}"
+    regexp: '^((?=[^#\n]*pam_unix\.so[^\n]*[ \t]yescrypt(?:[ \t]|$))[^\n]*?)[ \t]+rounds=(?!{{ guess_cost_yescrypt_factor }}(?:[ \t]|$))\d+'
+    replace: '\1'
+  notify: Absorb the pam_unix rounds into pam-auth-update
+
+- name: Pin the yescrypt cost on the pam_unix line (rounds=)
+  ansible.builtin.replace:
+    path: "{{ guess_cost_pam_password }}"
+    regexp: '^((?=[^#\n]*pam_unix\.so[^\n]*[ \t]yescrypt(?:[ \t]|$))(?![^\n]*[ \t]rounds=)[^\n]*?)[ \t]*$'
+    replace: '\1 rounds={{ guess_cost_yescrypt_factor }}'
+  notify: Absorb the pam_unix rounds into pam-auth-update
+
+- name: Check that a yescrypt pam_unix line carries the cost
+  ansible.builtin.command:
+    argv:
+      - grep
+      - -Eq
+      - '^[^#]*pam_unix\.so.*[[:space:]]yescrypt([[:space:]].*)?[[:space:]]rounds={{ guess_cost_yescrypt_factor }}([[:space:]]|$)'
+      - "{{ guess_cost_pam_password }}"
+  register: guess_cost_rounds
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Report a pam_unix line that does not mint yescrypt (its cost is left alone)
+  ansible.builtin.debug:
+    msg: "REVIEW - pam_unix in {{ guess_cost_pam_password }} has no yescrypt line - its cost is not pinned"
+  when:
+    - not ansible_check_mode
+    - guess_cost_rounds.rc != 0
 
 # The delay module must sit on the FAILURE path: after pam_unix (so the
 # guess has actually been judged) but before anything that ends the stack —
 # faillock's authfail dies, and Debian's closing pam_deny is requisite. A
 # line appended after those never runs (measured on a stock node: the
 # module was silently dead). Priority 128 puts it exactly there: below
-# pam_unix (256), above faillock's authfail (0).
+# pam_unix (256), above faillock's authfail (0). The delay is on the
+# module's own line (microseconds): without it pam_faildelay falls back to
+# login.defs' FAIL_DELAY, which Debian 12 cannot carry.
 - name: Install the pam-auth-update profile (fail delay on the failure path)
   ansible.builtin.copy:
-    src: hardening-faildelay
+    content: |
+      Name: Fail delay — every wrong guess waits (debian-hardening)
+      Default: yes
+      Priority: 128
+      Auth-Type: Primary
+      Auth:
+      	optional			pam_faildelay.so delay={{ guess_cost_fail_delay * 1000000 }}
     dest: /usr/share/pam-configs/hardening-faildelay
     owner: root
     group: root

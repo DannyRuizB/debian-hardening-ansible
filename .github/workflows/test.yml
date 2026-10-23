@@ -13,7 +13,16 @@ permissions:
 
 jobs:
   harden-and-verify:
-    name: Harden a disposable Debian node + verify
+    name: Harden a disposable Debian ${{ matrix.debian }} node + verify
+    # Debian 13 (Trixie) and 12 (Bookworm) both run every step below, built
+    # from the same Dockerfile (ARG DEBIAN): the README claims what this
+    # drills, nothing else.
+    strategy:
+      fail-fast: false
+      matrix:
+        debian: ['13', '12']
+    env:
+      DEBIAN: ${{ matrix.debian }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout

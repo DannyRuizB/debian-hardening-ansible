@@ -4,17 +4,21 @@
 # down with one line (the fork bomb) or with a runaway build. Debian ships every
 # session UNLIMITED (measured: `ulimit -u` and `ulimit -Hu` both "unlimited"
 # for a fresh user). One limits.d drop-in caps nproc for every PAM session;
-# sshd, login, su and sudo carry pam_limits in their stock Debian 13 stacks
+# sshd, login, su and sudo carry pam_limits in their stock Debian 12 and 13 stacks
 # (measured), so the cap lands where a compromised account arrives. Root is
 # left alone ('*' never matches root - the coredump_limits lesson - and root is
 # not the threat model); systemd services are not PAM sessions and keep their
 # own DefaultTasksMax. The HARD limit is the promise: measured, a capped
 # session can lower and re-raise its soft limit up to the hard one, but
-# `ulimit -u 8192` above it is "Operation not permitted". Measured against the
-# obvious escape too: rlimits are INHERITED, so `sudo` from a capped session
-# stays capped at 4096 - an explicit `root ... unlimited` line does not lift
-# it (pam_limits in sudo's stack cannot raise what the parent lowered). The
-# cap follows the session, sudo included; root's own logins stay unlimited.
+# `ulimit -u 8192` above it is "Operation not permitted". And the obvious
+# escape, sudo: rlimits are inherited, but sudo itself lifts nproc to
+# unlimited while it switches users and restores the caller's value before
+# exec "unless the limit appears to have been modified by pam_limits" (sudo's
+# NEWS). Measured: Debian 13 (sudo 1.9.16, PAM 1.7) restored 4096; Debian 12
+# (sudo 1.9.13, PAM 1.5.2) handed the sudo shell UNLIMITED. `Defaults
+# rlimit_nproc=user` says it outright - keep the invoking user's limit - and
+# both then give 4096 through sudo, sudo -i and sudo -u (root can still raise
+# its own limit on purpose; root's own logins stay unlimited).
 
 - name: Cap processes per login session in a limits.d drop-in (soft and hard)
   ansible.builtin.copy:
@@ -28,6 +32,16 @@
       # matched by '*' on purpose; systemd services are not PAM sessions.
       *    soft    nproc    {{ process_limits_nproc }}
       *    hard    nproc    {{ process_limits_nproc }}
+
+- name: Keep the caller's process cap through sudo (visudo-validated)
+  ansible.builtin.copy:
+    content: |
+      Defaults rlimit_nproc=user
+    dest: "{{ process_limits_sudo_dropin }}"
+    owner: root
+    group: root
+    mode: "0440"
+    validate: "visudo -cf %s"
 
 # The drop-in only bites where pam_limits sits in the session stack. Report,
 # never edit: a stack that lost it is a decision someone took on purpose.
