@@ -7,6 +7,14 @@ on:
   push:
     branches: [main]
   pull_request:
+  # The nodes are debian:13 and debian:12 as Docker Hub ships them THAT day,
+  # and those images move under a green main: before this, the last e2e ran
+  # on 2026-10-23 and debian:13 was rebuilt on 2026-11-05 - nothing would have
+  # said whether main still hardens what a fresh server boots today. Weekly,
+  # and by hand.
+  schedule:
+    - cron: '53 5 * * 1'
+  workflow_dispatch:
 
 permissions:
   contents: read

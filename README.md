@@ -140,7 +140,8 @@ Override on the command line (`-e var=value`) or in `group_vars/`:
 
 ## How it's tested
 
-Linting is not testing, so on every push the [`e2e` workflow](.github/workflows/test.yml)
+Linting is not testing, so on every push — and every Monday, because the base
+images move under a green `main` — the [`e2e` workflow](.github/workflows/test.yml)
 **applies the hardening for real** and checks the result from the outside:
 
 1. **Boot a disposable "server"** — a privileged systemd container
@@ -214,7 +215,8 @@ ssh user@host 'sudo fail2ban-client status sshd'
   `community.general` and `ansible.posix` collections (bundled with the full
   `ansible` package).
 - **Managed node:** **Debian 13 (Trixie) and Debian 12 (Bookworm)** — the
-  e2e hardens, re-runs and verifies a node of each on every push (one
+  e2e hardens, re-runs and verifies a node of each on every push and again
+  every week, against the images as Docker Hub ships them that day (one
   Dockerfile, `ARG DEBIAN`; `DEBIAN=12 ./tests/node.sh up` builds the 12
   one) — reachable over SSH with a sudo-capable user. Debian 12 was promised
   long before it was drilled; the first run on it found where the two
