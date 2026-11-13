@@ -66,3 +66,15 @@
     mode: "0644"
     validate: "sshd -t -f %s"
   notify: Reload ssh for host key policy
+
+# The pin is HostKeyAlgorithms, and it is first-wins: a drop-in read before
+# this one with its own list would put ECDSA back (measured), so that line is
+# reclaimed (see roles/sshd_reclaim). Earlier HostKey lines only LOAD a key;
+# with the pin in force it is never offered, so they are left alone.
+- name: Reclaim the HostKeyAlgorithms pin from any file sshd reads first
+  ansible.builtin.include_role:
+    name: sshd_reclaim
+  vars:
+    sshd_reclaim_dropin: /etc/ssh/sshd_config.d/96-hardening-hostkeys.conf
+    sshd_reclaim_lines:
+      - "HostKeyAlgorithms {{ (ssh_hostkeys_ed25519_algorithms + (ssh_hostkeys_rsa_algorithms if ssh_hostkeys_serve_rsa else [])) | join(',') }}"

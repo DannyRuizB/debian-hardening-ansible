@@ -52,3 +52,21 @@
     mode: "0644"
     validate: "sshd -t -f %s"
   notify: Reload ssh
+
+# --- sshd precedence ---------------------------------------------------------
+# The drop-in must WIN, not just exist: see roles/sshd_reclaim. The lockout
+# fallback (no key -> passwords stay on) is a guard, not a policy - an
+# earlier "PasswordAuthentication no" is someone already logging in by key,
+# and reclaiming it would weaken the box - so that one line stays out.
+- name: Collect the keyword lines this drop-in enforces
+  ansible.builtin.set_fact:
+    ssh_hardening_enforced: >-
+      {{ lookup('ansible.builtin.template', '99-hardening.conf.j2').splitlines()
+         | reject('match', '^PasswordAuthentication yes$') | list }}
+
+- name: Reclaim them from any file sshd reads first
+  ansible.builtin.include_role:
+    name: sshd_reclaim
+  vars:
+    sshd_reclaim_dropin: /etc/ssh/sshd_config.d/99-hardening.conf
+    sshd_reclaim_lines: "{{ ssh_hardening_enforced }}"

@@ -402,6 +402,37 @@ jobs:
           apt-config dump | grep -E "AllowInsecureRepositories|AllowUnauthenticated"
           SH
 
+      # sshd precedence, for every SSH role at once: most keywords are
+      # first-wins and Debian reads sshd_config.d in lexical order, so a
+      # drop-in named before the 9x- ones beats them silently. Measured on
+      # debian:13: Debian's cloud-init (25.1.4) writes exactly this
+      # 50-cloud-init.conf, and next to 99-hardening.conf saying "no" sshd
+      # kept password logins ON. The legacy drop-in shadows ssh_hardening,
+      # banners, ssh_policies, ssh_access (AllowGroups accumulates), ssh_crypto
+      # and ssh_hostkeys - key=value and odd case included - and ends in a
+      # Match block that must be left alone; the main-file line sits ABOVE the
+      # Include. `root` is in the planted AllowGroups only because this e2e
+      # connects as root until the play locks it out (the Bash twin plants
+      # `adm` alone). Planted before --check, like every offender here.
+      - name: Plant sshd lines read BEFORE the hardening drop-ins (cloud-init's and a legacy one)
+        run: |
+          docker exec -i dh-test-node bash -s <<'SH'
+          printf 'PasswordAuthentication yes\n' > /etc/ssh/sshd_config.d/50-cloud-init.conf
+          {
+            printf 'X11Forwarding yes\nMaxAuthTries 10\n  AllowTcpForwarding yes\nloglevel=QUIET\nLoginGraceTime 2m\nBanner none\n'
+            printf 'HostKeyAlgorithms ecdsa-sha2-nistp256,ssh-ed25519\nAllowGroups adm root\nCiphers aes128-ctr\n'
+            printf '\nMatch User nobody\n    X11Forwarding yes\n'
+          } > /etc/ssh/sshd_config.d/10-legacy.conf
+          sed -i '1i ClientAliveInterval 0' /etc/ssh/sshd_config
+          sshd -t && systemctl reload ssh
+          SH
+          eff=$(docker exec dh-test-node sshd -T)
+          kw='passwordauthentication|x11forwarding|maxauthtries|allowtcpforwarding|loglevel|logingracetime'
+          kw="$kw|banner|hostkeyalgorithms|allowgroups|ciphers|clientaliveinterval"
+          echo "sshd uses as planted: $(grep -E "^($kw) " <<<"$eff" | tr '\n' ';')"
+          grep -qx 'maxauthtries 10' <<<"$eff" && grep -qx 'allowgroups adm root' <<<"$eff" && grep -qx 'clientaliveinterval 0' <<<"$eff" \
+            || { echo "::error::sshd does not read the planted lines - the precedence check after hardening would prove nothing"; exit 1; }
+
       # The CI key doubles as the admin user's key. Written as a vars file
       # because -e key=value can't carry the spaces of an OpenSSH public key.
       - name: Prepare the admin user's public key as a vars file
