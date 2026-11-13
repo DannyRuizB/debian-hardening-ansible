@@ -430,7 +430,9 @@ jobs:
           kw='passwordauthentication|x11forwarding|maxauthtries|allowtcpforwarding|loglevel|logingracetime'
           kw="$kw|banner|hostkeyalgorithms|allowgroups|ciphers|clientaliveinterval"
           echo "sshd uses as planted: $(grep -E "^($kw) " <<<"$eff" | tr '\n' ';')"
-          grep -qx 'maxauthtries 10' <<<"$eff" && grep -qx 'allowgroups adm root' <<<"$eff" && grep -qx 'clientaliveinterval 0' <<<"$eff" \
+          # sshd -T prints one "allowgroups G" line per group.
+          grep -qx 'maxauthtries 10' <<<"$eff" && grep -qx 'clientaliveinterval 0' <<<"$eff" \
+            && grep -qx 'allowgroups adm' <<<"$eff" && grep -qx 'allowgroups root' <<<"$eff" \
             || { echo "::error::sshd does not read the planted lines - the precedence check after hardening would prove nothing"; exit 1; }
 
       # The CI key doubles as the admin user's key. Written as a vars file

@@ -283,8 +283,12 @@ while read -r kw val; do
     port|hostkey)
       grep -qixF "$lk $val" <<<"$sshd_eff" || sshd_bad+=" [$kw $val: not in sshd -T]" ;;
     allowgroups)
-      got=$(grep -i '^allowgroups ' <<<"$sshd_eff" | tr '\n' ' ' | sed 's/ $//')
-      [ "${got,,}" = "allowgroups ${val,,}" ] || sshd_bad+=" [AllowGroups: sshd -T has '$got']" ;;
+      # sshd -T prints one "allowgroups G" line per group, from every file:
+      # compared as sets, so an extra group anywhere is a failure.
+      got=$(grep -i '^allowgroups ' <<<"$sshd_eff" | awk '{print tolower($2)}' | sort -u | tr '\n' ' ' || true)
+      read -ra sshd_groups <<<"${val,,}"
+      exp=$(printf '%s\n' "${sshd_groups[@]}" | sort -u | tr '\n' ' ')
+      [ "$got" = "$exp" ] || sshd_bad+=" [AllowGroups: sshd -T allows '$got', the drop-in '$exp']" ;;
     *)
       got=$(grep -i "^$lk " <<<"$sshd_eff" | head -1 || true)
       [ "${got,,}" = "$lk ${val,,}" ] || sshd_bad+=" [$kw $val: sshd uses '${got:-nothing}']" ;;
