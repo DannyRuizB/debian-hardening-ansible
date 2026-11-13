@@ -30,7 +30,7 @@ The roles below, applied in order by `site.yml`:
 | Role | Detail |
 |---|---|
 | **admin_user** | Optional: create a sudo user and install their SSH public key (runs first, so the SSH lockout guard can find a key). |
-| **ssh_hardening** | Drop-in `99-hardening.conf`: no root login, key-only auth, custom port, plus CIS extras (`MaxAuthTries`, `X11Forwarding no`, `LoginGraceTime`, idle-session timeout). `validate: sshd -t` before the file goes live; reloads SSH only on change. |
+| **ssh_hardening** | Drop-in `99-hardening.conf`: no root login, key-only auth, custom port, plus CIS extras (`MaxAuthTries`, `X11Forwarding no`, `LoginGraceTime`, idle-session timeout). `validate: sshd -t` before the file goes live; reloads SSH only on change; every SSH role then reclaims its keywords from any file sshd reads first — see [sshd precedence](#sshd-precedence-the-drop-ins-must-actually-win). |
 | **ufw** | Default deny incoming, allow SSH (and any extra ports), then enable. |
 | **fail2ban** | `sshd` jail, `backend = systemd`, `banaction = ufw`, ban 1h / maxretry 5. |
 | **unattended_upgrades** | Automatic security patches. |
@@ -93,6 +93,33 @@ finds a non-empty `authorized_keys` for the connecting user — so a missing or
 mistyped key can't lock you out. Install a key via the `admin_user` role, or set
 `ssh_force_no_password: true` only when you have console access.
 
+### sshd precedence: the drop-ins must actually win
+
+`validate: sshd -t -f %s` checks syntax, not who won. For most keywords sshd
+keeps the **first** value it reads, and Debian includes `sshd_config.d` at the
+top of `sshd_config`, in lexical order — so the `95-`…`99-` drop-ins these roles
+write **lose** to any drop-in named before them, and to a line above the
+`Include`. **Measured** on debian:13 (OpenSSH 10.0p1): Debian's own cloud-init
+(25.1.4) writes `sshd_config.d/50-cloud-init.conf` with `PasswordAuthentication
+yes`, and next to `99-hardening.conf` saying `no` sshd **kept password logins
+on**. A `10-legacy.conf` next to it won `X11Forwarding`, `MaxAuthTries`,
+`LogLevel`, `Banner`, `Ciphers` and `HostKeyAlgorithms` the same way, and its
+`AllowGroups` was **added** to `ssh-users` — `AllowGroups` and `HostKey` don't
+shadow, they accumulate.
+
+So every SSH role ends by including **`sshd_reclaim`**: a read-only module
+(`sshd_shadows`) lists each line read before the role's drop-in whose value
+isn't the role's, `lineinfile` **comments it out — never deletes it** — behind
+`# debian-hardening (shadowed <drop-in>): `, and `sshd -T` is then asked whether
+every keyword is really in force (any that still loses is named). It works
+under `--check` like any other task. Left alone, on purpose: **`Port`** (another
+listening port may be someone's way in — named, not cut), **`Match` blocks**
+(per connection), a line with the **same value**, and the lockout guard's
+password fallback (an earlier `PasswordAuthentication no` is someone already
+logging in by key). The markers are byte-identical to the Bash twin's. The CI
+plants both files and the main-file line; `verify.sh` checks **every keyword
+line of every hardening drop-in** against `sshd -T`.
+
 ## What this demonstrates
 
 - **Infrastructure as Code** — a real manual procedure expressed declaratively
@@ -101,7 +128,8 @@ mistyped key can't lock you out. Install a key via the `admin_user` role, or set
 - **Idempotency by design** — desired-state modules instead of hand-written
   `if` checks; a second run reports `ok`, not `changed`.
 - **Safe automation** — config validated with `sshd -t` *before* it replaces the
-  live file, SSH reloaded only when it actually changed, and a lockout safeguard.
+  live file, a check that sshd *uses* what was written (`sshd -T`), SSH reloaded
+  only when it actually changed, and a lockout safeguard.
 - **Linux security baseline** — SSH hardening, host firewall, brute-force
   protection and patch automation.
 

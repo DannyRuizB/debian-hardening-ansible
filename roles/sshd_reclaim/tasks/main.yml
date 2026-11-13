@@ -1,0 +1,67 @@
+---
+# sshd precedence, shared by every SSH role. `sshd -t` checks syntax, not
+# who won: most sshd keywords are first-wins and Debian includes
+# sshd_config.d at the TOP of sshd_config, in lexical order - so a drop-in
+# named before the role's, or a line above the Include, silently beats it.
+# Measured on debian:13 (OpenSSH 10.0p1): Debian's own cloud-init (25.1.4)
+# writes 50-cloud-init.conf with "PasswordAuthentication yes", and next to
+# 99-hardening.conf saying "no" sshd kept password logins ON. HostKey and
+# AllowGroups accumulate instead: an earlier "AllowGroups admins" let that
+# group in next to ssh-users.
+#
+# Included by each SSH role right after it deploys its drop-in, with:
+#   sshd_reclaim_dropin  the drop-in that must win
+#   sshd_reclaim_lines   the "Keyword value" lines that role enforces
+# Each shadowing line is commented out, never deleted, behind a marker that
+# names the drop-in - the original stays there to read or restore. Left
+# alone: Port (another listening port may be someone's way in - named, not
+# cut), Match blocks (per connection), and lines with the role's own value.
+# Mirrors sshd_reclaim/sshd_confirm in the Bash twin.
+- name: Find the sshd lines read first that shadow {{ sshd_reclaim_dropin | basename }}
+  sshd_shadows:
+    dropin: "{{ sshd_reclaim_dropin }}"
+    lines: "{{ sshd_reclaim_lines }}"
+  register: sshd_reclaim_scan
+
+- name: Name an extra Port read first (left alone - it may be someone's way in)
+  ansible.builtin.debug:
+    msg: >-
+      sshd also listens on '{{ item.raw | trim }}' ({{ item.path }}:{{ item.line }}) -
+      left alone: another port may be someone's way in right now
+  loop: "{{ sshd_reclaim_scan.ports }}"
+  loop_control:
+    label: "{{ item.path }}:{{ item.line }}"
+
+# lineinfile with firstmatch replaces exactly one line per item, and an
+# identical line further down is a hit of its own: every shadowing line is
+# reclaimed once, nothing inside a Match block is touched.
+- name: Comment out (never delete) each line that shadowed {{ sshd_reclaim_dropin | basename }}
+  ansible.builtin.lineinfile:
+    path: "{{ item.path }}"
+    regexp: "^{{ item.raw | regex_escape }}$"
+    line: "# debian-hardening (shadowed {{ sshd_reclaim_dropin | basename }}): {{ item.raw }}"
+    firstmatch: true
+  loop: "{{ sshd_reclaim_scan.shadows }}"
+  loop_control:
+    label: "{{ item.path }}:{{ item.line }} {{ item.raw | trim }}"
+  notify: Reload ssh after a reclaim
+
+# The role said "deployed"; this is the check that sshd USES it. sshd -T
+# reads the files on disk, so it already sees the lines just commented out.
+- name: Ask sshd -T whether it now uses what is written in {{ sshd_reclaim_dropin | basename }}
+  sshd_shadows:
+    dropin: "{{ sshd_reclaim_dropin }}"
+    lines: "{{ sshd_reclaim_lines }}"
+    confirm: true
+  register: sshd_reclaim_confirm
+  when: not ansible_check_mode
+
+- name: Name every keyword sshd still takes from somewhere else
+  ansible.builtin.debug:
+    msg: >-
+      sshd still uses '{{ item.keyword }} {{ item.effective | default('nothing', true) }}',
+      not the '{{ item.keyword }} {{ item.written }}' of {{ sshd_reclaim_dropin | basename }} -
+      set somewhere it reads first (a Match block, an Include)
+  loop: "{{ sshd_reclaim_confirm.still_loses | default([]) }}"
+  loop_control:
+    label: "{{ item.keyword }}"

@@ -1,0 +1,7 @@
+---
+# Distinct name from the SSH roles' own reload handlers: handler names are
+# global to the play.
+- name: Reload ssh after a reclaim
+  ansible.builtin.systemd:
+    name: ssh
+    state: reloaded

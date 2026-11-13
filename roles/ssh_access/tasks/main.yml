@@ -38,6 +38,17 @@
         validate: "sshd -t -f %s"
       notify: Reload ssh for access control
 
+    # AllowGroups ACCUMULATES across the files sshd reads: an earlier
+    # "AllowGroups admins" lets that group in next to this one (measured), so
+    # "only ssh-users" needs the earlier lines reclaimed (roles/sshd_reclaim).
+    - name: Reclaim AllowGroups from any file sshd reads first
+      ansible.builtin.include_role:
+        name: sshd_reclaim
+      vars:
+        sshd_reclaim_dropin: /etc/ssh/sshd_config.d/96-hardening-access.conf
+        sshd_reclaim_lines:
+          - "AllowGroups {{ ssh_access_group }}"
+
 - name: Warn when SSH access control is skipped (no admin user to anchor to)
   ansible.builtin.debug:
     msg: >-

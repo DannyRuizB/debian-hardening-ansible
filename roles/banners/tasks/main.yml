@@ -27,3 +27,12 @@
     mode: "0644"
     validate: "sshd -t -f %s"
   notify: Reload ssh for banner
+
+# The drop-in must WIN, not just exist: see roles/sshd_reclaim.
+- name: Reclaim the Banner from any file sshd reads first
+  ansible.builtin.include_role:
+    name: sshd_reclaim
+  vars:
+    sshd_reclaim_dropin: /etc/ssh/sshd_config.d/98-banner.conf
+    sshd_reclaim_lines:
+      - Banner /etc/issue.net

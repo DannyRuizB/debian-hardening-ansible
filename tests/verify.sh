@@ -263,6 +263,51 @@ expect_line "auth log records the key fingerprint of our login" \
   "Accepted publickey.*SHA256:" \
   sudo sh -c '"journalctl -u ssh --no-pager 2>/dev/null | grep \"Accepted publickey\" | tail -3 || true"'
 
+echo "== sshd uses what the hardening drop-ins say (precedence) =="
+# The guardian over every SSH role: EACH keyword line of the hardening
+# drop-ins must be the value `sshd -T` reports - not what a file says. Most
+# keywords are first-wins and Debian reads sshd_config.d in lexical order,
+# so a drop-in named before ours beats it silently (the CI plants cloud-init's
+# 50-cloud-init.conf and a 10-legacy.conf, and a line above the Include).
+# Port and HostKey accumulate: ours must be among them. AllowGroups
+# accumulates too, and every extra group is someone else let in: it must be
+# exactly ours. A new keyword in a drop-in is covered the day it is written.
+sshd_eff=$(on_node sudo sshd -T 2>/dev/null || true)
+sshd_ours=$(on_node "sudo sh -c 'cat /etc/ssh/sshd_config.d/9[5-9]-*.conf'" 2>/dev/null | grep -Ev '^[[:space:]]*(#|$)' || true)
+sshd_checked=0; sshd_bad=""
+while read -r kw val; do
+  [ -n "$kw" ] || continue
+  lk=${kw,,}
+  sshd_checked=$((sshd_checked + 1))
+  case "$lk" in
+    port|hostkey)
+      grep -qixF "$lk $val" <<<"$sshd_eff" || sshd_bad+=" [$kw $val: not in sshd -T]" ;;
+    allowgroups)
+      # sshd -T prints one "allowgroups G" line per group, from every file:
+      # compared as sets, so an extra group anywhere is a failure.
+      got=$(grep -i '^allowgroups ' <<<"$sshd_eff" | awk '{print tolower($2)}' | sort -u | tr '\n' ' ' || true)
+      read -ra sshd_groups <<<"${val,,}"
+      exp=$(printf '%s\n' "${sshd_groups[@]}" | sort -u | tr '\n' ' ')
+      [ "$got" = "$exp" ] || sshd_bad+=" [AllowGroups: sshd -T allows '$got', the drop-in '$exp']" ;;
+    *)
+      got=$(grep -i "^$lk " <<<"$sshd_eff" | head -1 || true)
+      [ "${got,,}" = "$lk ${val,,}" ] || sshd_bad+=" [$kw $val: sshd uses '${got:-nothing}']" ;;
+  esac
+done <<<"$sshd_ours"
+if [ "$sshd_checked" -ge 20 ] && [ -z "$sshd_bad" ]; then
+  pass "all $sshd_checked keyword lines of the hardening drop-ins are what sshd uses"
+else
+  fail "the hardening drop-ins are what sshd uses ($sshd_checked lines read):${sshd_bad:- too few lines read}"
+fi
+# The reclaim comments out, never deletes: the planted lines must still be
+# there to read or restore, marked with the drop-in they shadowed - and a
+# Match block, which applies per connection, must be left alone.
+expect_line "cloud-init's 'PasswordAuthentication yes' was commented out, not deleted" \
+  '^# debian-hardening \(shadowed 99-hardening\.conf\): PasswordAuthentication yes$' \
+  sudo cat /etc/ssh/sshd_config.d/50-cloud-init.conf
+expect_line "a Match block in an earlier drop-in is left alone" \
+  '^    X11Forwarding yes$' sudo cat /etc/ssh/sshd_config.d/10-legacy.conf
+
 echo "== Core dump limits (CIS 1.5) =="
 # The limit must arrive through PAM at login — ask a REAL SSH session for its
 # ulimit, not the file we wrote. (ssh hands the command to the login shell,
