@@ -30,7 +30,7 @@ The roles below, applied in order by `site.yml`:
 | Role | Detail |
 |---|---|
 | **admin_user** | Optional: create a sudo user and install their SSH public key (runs first, so the SSH lockout guard can find a key). |
-| **ssh_hardening** | Drop-in `99-hardening.conf`: no root login, key-only auth, custom port, plus CIS extras (`MaxAuthTries`, `X11Forwarding no`, `LoginGraceTime`, idle-session timeout). `validate: sshd -t` before the file goes live; reloads SSH only on change; every SSH role then reclaims its keywords from any file sshd reads first — see [sshd precedence](#sshd-precedence-the-drop-ins-must-actually-win). |
+| **ssh_hardening** | Drop-in `99-hardening.conf`: no root login, key-only auth, custom port, plus CIS extras (`MaxAuthTries`, `X11Forwarding no`, `LoginGraceTime`, idle-session timeout). `validate: sshd -t` before the file goes live; reloads SSH only on change; every SSH role then reclaims its keywords from any line that beats its drop-in — see [sshd precedence](#sshd-precedence-the-drop-ins-must-actually-win). |
 | **ufw** | Default deny incoming, allow SSH (and any extra ports), then enable. |
 | **fail2ban** | `sshd` jail, `backend = systemd`, `banaction = ufw`, ban 1h / maxretry 5. |
 | **unattended_upgrades** | Automatic security patches. |
@@ -107,9 +107,21 @@ on**. A `10-legacy.conf` next to it won `X11Forwarding`, `MaxAuthTries`,
 `AllowGroups` was **added** to `ssh-users` — `AllowGroups` and `HostKey` don't
 shadow, they accumulate.
 
+Two keywords break first-wins, so for them a line read **after** the drop-ins
+counts too — the tail of `sshd_config`, where `echo … >> /etc/ssh/sshd_config`
+lands, or a drop-in that sorts later. **Measured** for all 24 keywords the SSH
+roles write, on debian:13 (OpenSSH 10.0p2) and debian:12 (9.2), with the
+opposite value read before and after: 22 keep the first value; **`MaxStartups`
+keeps the last** (an appended `MaxStartups 100:30:200` beat `ssh_policies`'
+`10:30:60`), and **`AllowGroups` adds up from every file** (an appended
+`AllowGroups admins` let `admins` in next to `ssh_access`'s `ssh-users`).
+
 So every SSH role ends by including **`sshd_reclaim`**: a read-only module
-(`sshd_shadows`) lists each line read before the role's drop-in whose value
-isn't the role's, `lineinfile` **comments it out — never deletes it** — behind
+(`sshd_shadows`) lists each line that beats the role's drop-in with a value
+that isn't the role's — read before it for first-wins keywords, read after it
+for `MaxStartups`, anywhere for `AllowGroups` — and `lineinfile` **comments it
+out — never deletes it** (the first match for a line read before, the last for
+one read after: the main config holds both sides) — behind
 `# debian-hardening (shadowed <drop-in>): `, and `sshd -T` is then asked whether
 every keyword is really in force (any that still loses is named). It works
 under `--check` like any other task. Left alone, on purpose: **`Port`** (another
@@ -117,7 +129,8 @@ listening port may be someone's way in — named, not cut), **`Match` blocks**
 (per connection), a line with the **same value**, and the lockout guard's
 password fallback (an earlier `PasswordAuthentication no` is someone already
 logging in by key). The markers are byte-identical to the Bash twin's. The CI
-plants both files and the main-file line; `verify.sh` checks **every keyword
+plants all of it — the two early drop-ins, a line above the `Include`, a late
+`zz-local.conf` and lines appended to `sshd_config`; `verify.sh` checks **every keyword
 line of every hardening drop-in** against `sshd -T`.
 
 ## What this demonstrates
