@@ -307,6 +307,16 @@ expect_line "cloud-init's 'PasswordAuthentication yes' was commented out, not de
   sudo cat /etc/ssh/sshd_config.d/50-cloud-init.conf
 expect_line "a Match block in an earlier drop-in is left alone" \
   '^    X11Forwarding yes$' sudo cat /etc/ssh/sshd_config.d/10-legacy.conf
+# Lines read AFTER the drop-ins count for the two keywords that are not
+# first-wins: AllowGroups appended to the end of sshd_config (it adds up) and
+# a later MaxStartups (it is last-wins). The guardian above already compared
+# their effect with sshd -T; this is the "commented, not deleted" half.
+expect_line "an AllowGroups appended to sshd_config was commented out, not deleted" \
+  '^# debian-hardening \(shadowed 96-hardening-access\.conf\): AllowGroups staff$' \
+  sudo cat /etc/ssh/sshd_config
+expect_line "a MaxStartups in a drop-in read after ours was commented out, not deleted" \
+  '^# debian-hardening \(shadowed 97-hardening-policies\.conf\): maxstartups=200$' \
+  sudo cat /etc/ssh/sshd_config.d/zz-local.conf
 
 echo "== Core dump limits (CIS 1.5) =="
 # The limit must arrive through PAM at login — ask a REAL SSH session for its

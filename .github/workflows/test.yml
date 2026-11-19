@@ -413,8 +413,12 @@ jobs:
       # Match block that must be left alone; the main-file line sits ABOVE the
       # Include. `root` is in the planted AllowGroups only because this e2e
       # connects as root until the play locks it out (the Bash twin plants
-      # `adm` alone). Planted before --check, like every offender here.
-      - name: Plant sshd lines read BEFORE the hardening drop-ins (cloud-init's and a legacy one)
+      # `adm` alone). Two keywords break first-wins (measured on OpenSSH
+      # 10.0p2 and 9.2): MaxStartups is LAST-wins and AllowGroups adds up from
+      # every file - so lines read AFTER the drop-ins count too: the tail of
+      # sshd_config, where `echo ... >> sshd_config` lands, and a
+      # zz-local.conf. Planted before --check, like every offender here.
+      - name: Plant sshd lines read before AND after the hardening drop-ins (cloud-init's, a legacy one, a late one)
         run: |
           docker exec -i dh-test-node bash -s <<'SH'
           printf 'PasswordAuthentication yes\n' > /etc/ssh/sshd_config.d/50-cloud-init.conf
@@ -423,16 +427,20 @@ jobs:
             printf 'HostKeyAlgorithms ecdsa-sha2-nistp256,ssh-ed25519\nAllowGroups adm root\nCiphers aes128-ctr\n'
             printf '\nMatch User nobody\n    X11Forwarding yes\n'
           } > /etc/ssh/sshd_config.d/10-legacy.conf
+          printf 'AllowGroups users\nmaxstartups=200\n' > /etc/ssh/sshd_config.d/zz-local.conf
           sed -i '1i ClientAliveInterval 0' /etc/ssh/sshd_config
+          printf 'MaxStartups 100:30:200\nAllowGroups staff\n' >> /etc/ssh/sshd_config
           sshd -t && systemctl reload ssh
           SH
           eff=$(docker exec dh-test-node sshd -T)
-          kw='passwordauthentication|x11forwarding|maxauthtries|allowtcpforwarding|loglevel|logingracetime'
+          kw='passwordauthentication|x11forwarding|maxauthtries|maxstartups|allowtcpforwarding|loglevel|logingracetime'
           kw="$kw|banner|hostkeyalgorithms|allowgroups|ciphers|clientaliveinterval"
           echo "sshd uses as planted: $(grep -E "^($kw) " <<<"$eff" | tr '\n' ';')"
           # sshd -T prints one "allowgroups G" line per group.
           grep -qx 'maxauthtries 10' <<<"$eff" && grep -qx 'clientaliveinterval 0' <<<"$eff" \
             && grep -qx 'allowgroups adm' <<<"$eff" && grep -qx 'allowgroups root' <<<"$eff" \
+            && grep -qx 'allowgroups users' <<<"$eff" && grep -qx 'allowgroups staff' <<<"$eff" \
+            && grep -qx 'maxstartups 100:30:200' <<<"$eff" \
             || { echo "::error::sshd does not read the planted lines - the precedence check after hardening would prove nothing"; exit 1; }
 
       # The CI key doubles as the admin user's key. Written as a vars file

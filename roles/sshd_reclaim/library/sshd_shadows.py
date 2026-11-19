@@ -1,11 +1,15 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
-"""Read-only: which sshd lines read BEFORE a drop-in shadow its keywords.
+"""Read-only: which sshd lines beat a drop-in's keywords.
 
 Most sshd keywords are first-wins and Debian includes sshd_config.d at the
 top of sshd_config, in lexical order - so a drop-in named before ours (the
 50-cloud-init.conf Debian's cloud-init writes) or a main-file line above the
-Include silently beats it. Mirrors sshd_reclaim/sshd_confirm in the Bash twin.
+Include silently beats it. Two break the rule (measured on OpenSSH 10.0p2 and
+9.2): MaxStartups is LAST-wins, so a line read after ours beats it - one
+appended below the Include, or a drop-in sorting later - and AllowGroups adds
+up from every file, before or after. Mirrors sshd_reclaim/sshd_confirm in the
+Bash twin.
 """
 
 from __future__ import absolute_import, division, print_function
@@ -14,11 +18,16 @@ __metaclass__ = type
 
 DOCUMENTATION = r"""
 module: sshd_shadows
-short_description: Find sshd lines read before a drop-in that override its keywords
+short_description: Find sshd lines that beat a drop-in's keywords
 description:
-  - Lists every line, in the main sshd config above its Include and in the
-    drop-ins whose names sort before O(dropin), that sets one of the keywords
-    in O(lines) to a value that is not the drop-in's.
+  - Lists every line that sets one of the keywords in O(lines) to a value that
+    is not the drop-in's, from wherever that keyword can win - read before
+    O(dropin) (the main config above its Include, drop-ins sorting first) for
+    first-wins keywords, read after it (drop-ins sorting later, the main
+    config below its Include) for MaxStartups, both for AllowGroups.
+  - Each line carries its side, C(before) or C(after); the main config holds
+    both, so a caller editing by text picks the first match for a C(before)
+    line and the last for an C(after) one.
   - Lines from a file's first Match on are never listed (a Match applies per
     connection). Port lines are reported apart - another listening port may
     be someone's way in, so the caller names it and leaves it.
@@ -51,11 +60,11 @@ options:
 
 RETURN = r"""
 shadows:
-  description: Lines to reclaim (path, line, raw, keyword).
+  description: Lines to reclaim (path, line, raw, keyword, side).
   returned: always
   type: list
 ports:
-  description: Port lines read first with another port (named, never cut).
+  description: Port lines with another port, either side (named, never cut).
   returned: always
   type: list
 still_loses:
@@ -73,6 +82,17 @@ from ansible.module_utils.basic import AnsibleModule
 # These accumulate across the files sshd reads instead of being first-wins,
 # so a single effective value cannot be compared (verify checks them as sets).
 ACCUMULATING = ("port", "hostkey", "allowgroups")
+# From which side of the drop-in a line beats it: an accumulating keyword
+# from both, MaxStartups (last-wins) from after, everything else from before.
+LAST_WINS = ("maxstartups",)
+
+
+def beats_from(keyword):
+    if keyword in ACCUMULATING:
+        return ("before", "after")
+    if keyword in LAST_WINS:
+        return ("after",)
+    return ("before",)
 KEYWORD = re.compile(r"([^\s=]+)\s*=?\s*(.*)$")
 
 
@@ -83,19 +103,28 @@ def split_line(text):
     return match.group(1).lower(), " ".join(match.group(2).split()).lower()
 
 
-def global_lines(path, stop_at_include):
+def global_lines(path, piece):
+    """Lines outside Match blocks. piece: "all" for a drop-in; "above" or
+    "below" the Include for the main config, read before and after the
+    drop-ins."""
     try:
         with open(path) as handle:
             lines = handle.read().splitlines()
     except (IOError, OSError):
         return []
     found = []
+    below = False
     for number, raw in enumerate(lines, 1):
         low = raw.strip().lower()
         if re.match(r"match(\s|$)", low):
             break
-        if stop_at_include and re.match(r"include\s", low):
-            break
+        if piece != "all" and re.match(r"include\s", low):
+            if piece == "above":
+                break
+            below = True
+            continue
+        if piece == "below" and not below:
+            continue
         if not low or low.startswith("#"):
             continue
         found.append((number, raw))
@@ -123,30 +152,36 @@ def main():
             want.setdefault(keyword, set()).add(value)
 
     base = os.path.basename(params["dropin"])
-    # What sshd reads before the drop-in: the main file above its Include,
-    # then the drop-ins whose names sort before it (glob order: Python's
-    # sorted() is code-point order, the C collation).
-    files = []
-    if os.path.isfile(params["main_config"]):
-        files.append((params["main_config"], True))
+    # What sshd reads, in order: the main file above its Include, the
+    # drop-ins (glob order: Python's sorted() is code-point order, the C
+    # collation) - this one among them - then the main file below the Include.
+    main_config = params["main_config"]
+    has_main = os.path.isfile(main_config)
+    pieces = [(main_config, "above", "before")] if has_main else []
     names = set(
         os.path.basename(path)
         for path in glob.glob(os.path.join(params["dropin_dir"], "*.conf"))
         if os.path.isfile(path)
     )
     names.add(base)
+    side = "before"
     for name in sorted(names):
         if name == base:
-            break
-        files.append((os.path.join(params["dropin_dir"], name), False))
+            side = "after"
+            continue
+        pieces.append((os.path.join(params["dropin_dir"], name), "all", side))
+    if has_main:
+        pieces.append((main_config, "below", "after"))
 
     shadows, ports = [], []
-    for path, is_main in files:
-        for number, raw in global_lines(path, is_main):
+    for path, piece, side in pieces:
+        for number, raw in global_lines(path, piece):
             keyword, value = split_line(raw)
             if keyword not in want or value in want[keyword]:
                 continue
-            hit = dict(path=path, line=number, raw=raw, keyword=keyword)
+            if side not in beats_from(keyword):
+                continue
+            hit = dict(path=path, line=number, raw=raw, keyword=keyword, side=side)
             (ports if keyword == "port" else shadows).append(hit)
 
     still_loses = []
